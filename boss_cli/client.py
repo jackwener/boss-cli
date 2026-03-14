@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+import urllib.parse
 from collections import deque
 from typing import Any
 
@@ -158,7 +159,7 @@ class BossClient:
         if url == JOB_SEARCH_URL:
             query = ""
             if params and params.get("query"):
-                query = f"?query={params['query']}"
+                query = f"?query={urllib.parse.quote(params['query'])}"
             headers["Referer"] = f"{WEB_GEEK_JOB_URL}{query}"
         elif url == GEEK_GET_JOB_URL and params and params.get("tag") == 5:
             headers["Referer"] = WEB_GEEK_RECOMMEND_URL
