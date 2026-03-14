@@ -181,11 +181,9 @@ mkdir -p .agents/skills
 git clone git@github.com:jackwener/boss-cli.git .agents/skills/boss-cli
 ```
 
-### OpenClaw / ClawHub
+### ~~OpenClaw / ClawHub~~ (Deprecated)
 
-```bash
-clawhub install boss-cli
-```
+> ⚠️ ClawHub install method is deprecated and no longer supported. Use [Skills CLI](#skills-cli-recommended) or Manual Install above.
 
 ## Project Structure
 
