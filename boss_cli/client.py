@@ -13,6 +13,13 @@ import httpx
 
 from .constants import (
     BASE_URL,
+    BOSS_FRIEND_LIST_URL,
+    BOSS_GEEK_DETAIL_URL,
+    BOSS_GEEK_SEARCH_URL,
+    BOSS_GREET_URL,
+    BOSS_JOB_LIST_URL,
+    BOSS_RECOMMEND_GEEK_URL,
+    BOSS_RESUME_LIST_URL,
     CITY_CODES,
     DELIVER_LIST_URL,
     FRIEND_ADD_URL,
@@ -28,6 +35,8 @@ from .constants import (
     RESUME_EXPECT_URL,
     RESUME_STATUS_URL,
     USER_INFO_URL,
+    WEB_BOSS_CHAT_URL,
+    WEB_BOSS_RECOMMEND_URL,
     WEB_GEEK_CHAT_URL,
     WEB_GEEK_HISTORY_URL,
     WEB_GEEK_JOB_URL,
@@ -171,6 +180,15 @@ class BossClient:
             headers["Referer"] = WEB_GEEK_HISTORY_URL
         elif url in (FRIEND_LIST_URL, FRIEND_ADD_URL):
             headers["Referer"] = WEB_GEEK_CHAT_URL
+        # ── Recruiter (Boss) endpoints ──
+        elif url in (BOSS_RECOMMEND_GEEK_URL,):
+            headers["Referer"] = WEB_BOSS_RECOMMEND_URL
+        elif url in (BOSS_GEEK_SEARCH_URL, BOSS_GEEK_DETAIL_URL):
+            headers["Referer"] = WEB_BOSS_RECOMMEND_URL
+        elif url in (BOSS_FRIEND_LIST_URL, BOSS_GREET_URL):
+            headers["Referer"] = WEB_BOSS_CHAT_URL
+        elif url in (BOSS_JOB_LIST_URL, BOSS_RESUME_LIST_URL):
+            headers["Referer"] = WEB_BOSS_RECOMMEND_URL
         return headers
 
     def _handle_response(self, data: dict[str, Any], action: str) -> dict[str, Any]:
@@ -398,6 +416,68 @@ class BossClient:
     def get_geek_job(self, security_id: str) -> dict[str, Any]:
         """Get interacted job info."""
         return self._get(GEEK_GET_JOB_URL, params={"securityId": security_id}, action="互动职位")
+
+    # ── Recruiter (Boss) ─────────────────────────────────────────────
+
+    def search_geeks(
+        self,
+        query: str,
+        city: str = "100010000",
+        page: int = 1,
+        page_size: int = 15,
+        experience: str | None = None,
+        degree: str | None = None,
+        salary: str | None = None,
+    ) -> dict[str, Any]:
+        """搜索候选人/牛人。"""
+        params: dict[str, Any] = {
+            "query": query,
+            "city": city,
+            "page": page,
+            "pageSize": page_size,
+        }
+        if experience:
+            params["experience"] = experience
+        if degree:
+            params["degree"] = degree
+        if salary:
+            params["salary"] = salary
+        return self._get(BOSS_GEEK_SEARCH_URL, params=params, action="搜索候选人")
+
+    def get_recommend_geeks(self, page: int = 1) -> dict[str, Any]:
+        """获取推荐候选人列表。"""
+        return self._get(
+            BOSS_RECOMMEND_GEEK_URL,
+            params={"page": page},
+            action="推荐候选人",
+        )
+
+    def get_geek_detail(self, security_id: str) -> dict[str, Any]:
+        """查看候选人详情。"""
+        return self._get(
+            BOSS_GEEK_DETAIL_URL,
+            params={"securityId": security_id},
+            action="候选人详情",
+        )
+
+    def get_boss_friend_list(self) -> dict[str, Any]:
+        """获取沟通列表（招聘方视角）。"""
+        return self._get(BOSS_FRIEND_LIST_URL, action="招聘方沟通列表")
+
+    def boss_add_friend(self, security_id: str, lid: str = "") -> dict[str, Any]:
+        """招聘方向候选人打招呼。"""
+        params: dict[str, str] = {"securityId": security_id}
+        if lid:
+            params["lid"] = lid
+        return self._get(BOSS_GREET_URL, params=params, action="招聘方打招呼")
+
+    def get_boss_jobs(self, page: int = 1) -> dict[str, Any]:
+        """查看我发布的职位列表。"""
+        return self._get(BOSS_JOB_LIST_URL, params={"page": page}, action="我的职位")
+
+    def get_resume_list(self, page: int = 1) -> dict[str, Any]:
+        """查看收到的简历列表。"""
+        return self._get(BOSS_RESUME_LIST_URL, params={"page": page}, action="收到的简历")
 
 
 # ── City resolution ─────────────────────────────────────────────────

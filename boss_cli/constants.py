@@ -41,6 +41,20 @@ FRIEND_LIST_URL = "/wapi/zprelation/friend/getGeekFriendList.json"
 FRIEND_ADD_URL = "/wapi/zpgeek/friend/add.json"
 GEEK_GET_JOB_URL = "/wapi/zprelation/interaction/geekGetJob"
 
+# ── Recruiter (Boss) Web URLs ───────────────────────────────────────
+WEB_BOSS_BASE_URL = f"{BASE_URL}/web/boss"
+WEB_BOSS_RECOMMEND_URL = f"{WEB_BOSS_BASE_URL}/recommend"
+WEB_BOSS_CHAT_URL = f"{WEB_BOSS_BASE_URL}/chat"
+
+# ── Recruiter (Boss) API ────────────────────────────────────────────
+BOSS_RECOMMEND_GEEK_URL = "/wapi/zpboss/recommend/geek/list.json"
+BOSS_GEEK_DETAIL_URL = "/wapi/zpboss/geek/detail.json"
+BOSS_FRIEND_LIST_URL = "/wapi/zprelation/friend/getBossFriendList.json"
+BOSS_GREET_URL = "/wapi/zpboss/friend/add.json"
+BOSS_JOB_LIST_URL = "/wapi/zpboss/job/list.json"
+BOSS_RESUME_LIST_URL = "/wapi/zprelation/geek/bossGeekResumeList"
+BOSS_GEEK_SEARCH_URL = "/wapi/zpboss/search/geek.json"
+
 # ── Request Headers (Chrome 145, macOS) ─────────────────────────────
 HEADERS = {
     "User-Agent": (
