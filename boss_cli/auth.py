@@ -156,6 +156,7 @@ def extract_browser_credential(cookie_source: str | None = None) -> Credential |
     """
     extract_script = '''
 import json, sys
+from pathlib import Path
 try:
     import browser_cookie3 as bc3
 except ImportError:
@@ -189,8 +190,51 @@ if target:
 
 for name, loader in browsers:
     try:
-        cj = loader(domain_name=".zhipin.com")
-        cookies = {c.name: c.value for c in cj if "zhipin.com" in (c.domain or "")}
+        # On macOS, Chrome users often have multiple profiles (Default, Profile 1/2/...).
+        # browser_cookie3.chrome() without specifying cookie_file may miss non-default profiles.
+        cookie_files = [None]
+        if name.lower() == "chrome":
+            base = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+            if base.exists():
+                # Collect cookies DB paths from common profiles
+                candidates = []
+                for p in [base / "Default", base / "Profile 1", base / "Profile 2", base / "Profile 3", base / "Profile 4", base / "Profile 5"]:
+                    cf = p / "Cookies"
+                    if cf.exists():
+                        candidates.append(str(cf))
+                # Also include any other Profile */Cookies we can see
+                try:
+                    for cf in base.glob("Profile */Cookies"):
+                        s = str(cf)
+                        if s not in candidates and cf.exists():
+                            candidates.append(s)
+                except Exception:
+                    pass
+                if candidates:
+                    cookie_files = candidates
+
+        cookies = {}
+        for cookie_file in cookie_files:
+            try:
+                if cookie_file is None:
+                    cj = loader(domain_name=".zhipin.com")
+                else:
+                    # Only some loaders accept cookie_file; for Chrome it does.
+                    cj = loader(domain_name=".zhipin.com", cookie_file=cookie_file)  # type: ignore[call-arg]
+                for c in cj:
+                    if "zhipin.com" in (c.domain or ""):
+                        cookies[c.name] = c.value
+                if cookies:
+                    break
+            except TypeError:
+                # loader doesn't support cookie_file
+                cj = loader(domain_name=".zhipin.com")
+                for c in cj:
+                    if "zhipin.com" in (c.domain or ""):
+                        cookies[c.name] = c.value
+                break
+            except Exception:
+                pass
         if cookies:
             print(json.dumps({"browser": name, "cookies": cookies}))
             sys.exit(0)
