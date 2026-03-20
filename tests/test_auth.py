@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # ── Diagnostics ─────────────────────────────────────────────────────
 
@@ -187,7 +185,6 @@ class TestExtractInProcess:
         from boss_cli.auth import _extract_in_process
 
         with patch.dict("sys.modules", {"browser_cookie3": None}):
-            import importlib
             cred, diag = _extract_in_process()
             # We can't easily remove from sys.modules in a test,
             # but at minimum verify the function returns a tuple
@@ -215,4 +212,44 @@ class TestExtractInProcess:
 
         assert cred is not None
         assert cred.cookies["wt2"] == "test_val"
+
+    def test_prefers_complete_profile_over_partial_default(self):
+        from boss_cli.auth import _extract_in_process
+
+        class FakeCookie:
+            def __init__(self, domain, name, value):
+                self.domain = domain
+                self.name = name
+                self.value = value
+
+        def chrome_loader(*, cookie_file=None, domain_name=None):
+            if cookie_file and "Profile 1" in cookie_file:
+                return [
+                    FakeCookie(".zhipin.com", "__zp_stoken__", "s"),
+                    FakeCookie(".zhipin.com", "wt2", "1"),
+                    FakeCookie(".zhipin.com", "wbg", "2"),
+                    FakeCookie(".zhipin.com", "zp_at", "3"),
+                    FakeCookie(".zhipin.com", "__c", "4"),
+                ]
+            return [FakeCookie(".zhipin.com", "__a", "partial")]
+
+        mock_bc3 = MagicMock()
+        mock_bc3.chrome.side_effect = chrome_loader
+        mock_bc3.firefox.return_value = []
+        mock_bc3.edge.return_value = []
+        mock_bc3.brave.return_value = []
+
+        with patch.dict("sys.modules", {"browser_cookie3": mock_bc3}), \
+             patch(
+                 "boss_cli.auth._iter_chrome_cookie_files",
+                 return_value=[
+                     "/tmp/Chrome/Default/Cookies",
+                     "/tmp/Chrome/Profile 1/Cookies",
+                 ],
+             ):
+            cred, _ = _extract_in_process("chrome")
+
+        assert cred is not None
+        assert cred.has_required_cookies is True
+        assert cred.cookies["__zp_stoken__"] == "s"
 """Tests for boss_cli.auth — diagnostics, env fallback, and extraction."""
