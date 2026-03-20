@@ -299,6 +299,26 @@ def _extract_cookies_from_jar(jar: Any, source: str = "unknown") -> dict[str, st
     return None
 
 
+def _prefer_cookie_candidate(
+    best_cred: Credential | None,
+    best_source: str | None,
+    cookies: dict[str, str] | None,
+    source: str,
+) -> tuple[Credential | None, str | None]:
+    """Prefer complete credentials, otherwise keep the richer partial set."""
+    if not cookies:
+        return best_cred, best_source
+
+    candidate = Credential(cookies=cookies)
+    if candidate.has_required_cookies:
+        return candidate, source
+
+    if best_cred is None or (not best_cred.has_required_cookies and len(candidate.cookies) > len(best_cred.cookies)):
+        return candidate, source
+
+    return best_cred, best_source
+
+
 def _extract_in_process(cookie_source: str | None = None) -> tuple[Credential | None, list[str]]:
     """Extract cookies in the main process.
 
@@ -328,6 +348,8 @@ def _extract_in_process(cookie_source: str | None = None) -> tuple[Credential | 
 
     diagnostics: list[str] = []
     attempts: list[str] = []
+    best_cred: Credential | None = None
+    best_source: str | None = None
 
     for name in _get_browser_order(cookie_source):
         fn = browser_fns.get(name)
@@ -347,10 +369,15 @@ def _extract_in_process(cookie_source: str | None = None) -> tuple[Credential | 
                     diagnostics.append(f"{name}: {e}")
                     continue
                 cookies = _extract_cookies_from_jar(jar, source=f"{name}(in-process)")
-                if cookies:
-                    cred = Credential(cookies=cookies)
-                    logger.info("Found cookies in %s (in-process, default)", name)
-                    return cred, diagnostics
+                best_cred, best_source = _prefer_cookie_candidate(
+                    best_cred,
+                    best_source,
+                    cookies,
+                    f"{name}(in-process, default)",
+                )
+                if best_cred and best_cred.has_required_cookies:
+                    logger.info("Found complete cookies in %s", best_source)
+                    return best_cred, diagnostics
                 attempts.append(f"{name}=no-cookies")
                 continue
 
@@ -364,10 +391,15 @@ def _extract_in_process(cookie_source: str | None = None) -> tuple[Credential | 
                     diagnostics.append(f"{name}[{profile_name}]: {e}")
                     continue
                 cookies = _extract_cookies_from_jar(jar, source=f"{name}[{profile_name}](in-process)")
-                if cookies:
-                    cred = Credential(cookies=cookies)
-                    logger.info("Found cookies in %s profile '%s' (in-process)", name, profile_name)
-                    return cred, diagnostics
+                best_cred, best_source = _prefer_cookie_candidate(
+                    best_cred,
+                    best_source,
+                    cookies,
+                    f"{name}[{profile_name}](in-process)",
+                )
+                if best_cred and best_cred.has_required_cookies:
+                    logger.info("Found complete cookies in %s", best_source)
+                    return best_cred, diagnostics
                 attempts.append(f"{name}[{profile_name}]=no-cookies")
         else:
             # Non-Chromium (Firefox): use default behavior
@@ -379,14 +411,26 @@ def _extract_in_process(cookie_source: str | None = None) -> tuple[Credential | 
                 diagnostics.append(f"{name}: {e}")
                 continue
             cookies = _extract_cookies_from_jar(jar, source=f"{name}(in-process)")
-            if cookies:
-                cred = Credential(cookies=cookies)
-                logger.info("Found cookies in %s (in-process)", name)
-                return cred, diagnostics
+            best_cred, best_source = _prefer_cookie_candidate(
+                best_cred,
+                best_source,
+                cookies,
+                f"{name}(in-process)",
+            )
+            if best_cred and best_cred.has_required_cookies:
+                logger.info("Found complete cookies in %s", best_source)
+                return best_cred, diagnostics
             attempts.append(f"{name}=no-cookies")
 
     if attempts:
         logger.debug("In-process extraction attempts: %s", ", ".join(attempts))
+    if best_cred:
+        logger.info(
+            "Using partial cookies from %s (in-process, %d cookies)",
+            best_source,
+            len(best_cred.cookies),
+        )
+        return best_cred, diagnostics
     return None, diagnostics
 
 
@@ -458,6 +502,7 @@ if target:
         sys.exit(0)
 
 attempts = []
+best = None
 for name, loader in browsers:
     if name in CHROMIUM_BASE_DIRS:
         cookie_files = iter_cookie_files(name)
@@ -466,8 +511,11 @@ for name, loader in browsers:
                 cj = loader(domain_name=".zhipin.com")
                 cookies = {c.name: c.value for c in cj if "zhipin.com" in (c.domain or "")}
                 if cookies:
-                    print(json.dumps({"browser": name, "cookies": cookies}))
-                    sys.exit(0)
+                    if REQUIRED_COOKIES.issubset(set(cookies)):
+                        print(json.dumps({"browser": name, "cookies": cookies}))
+                        sys.exit(0)
+                    if best is None or len(cookies) > len(best["cookies"]):
+                        best = {"browser": name, "cookies": cookies}
                 attempts.append(f"{name}=no-cookies")
             except Exception as exc:
                 attempts.append(f"{name}={type(exc).__name__}: {exc}")
@@ -478,8 +526,11 @@ for name, loader in browsers:
                 cj = loader(cookie_file=cf, domain_name=".zhipin.com")
                 cookies = {c.name: c.value for c in cj if "zhipin.com" in (c.domain or "")}
                 if cookies:
-                    print(json.dumps({"browser": name, "cookies": cookies}))
-                    sys.exit(0)
+                    if REQUIRED_COOKIES.issubset(set(cookies)):
+                        print(json.dumps({"browser": name, "cookies": cookies}))
+                        sys.exit(0)
+                    if best is None or len(cookies) > len(best["cookies"]):
+                        best = {"browser": f"{name}[{pname}]", "cookies": cookies}
                 attempts.append(f"{name}[{pname}]=no-cookies")
             except Exception as exc:
                 attempts.append(f"{name}[{pname}]={type(exc).__name__}: {exc}")
@@ -488,11 +539,18 @@ for name, loader in browsers:
             cj = loader(domain_name=".zhipin.com")
             cookies = {c.name: c.value for c in cj if "zhipin.com" in (c.domain or "")}
             if cookies:
-                print(json.dumps({"browser": name, "cookies": cookies}))
-                sys.exit(0)
+                if REQUIRED_COOKIES.issubset(set(cookies)):
+                    print(json.dumps({"browser": name, "cookies": cookies}))
+                    sys.exit(0)
+                if best is None or len(cookies) > len(best["cookies"]):
+                    best = {"browser": name, "cookies": cookies}
             attempts.append(f"{name}=no-cookies")
         except Exception as exc:
             attempts.append(f"{name}={type(exc).__name__}: {exc}")
+
+if best:
+    print(json.dumps(best))
+    sys.exit(0)
 
 print(json.dumps({"error": "no_cookies", "attempts": attempts}))
 '''
