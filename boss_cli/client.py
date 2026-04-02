@@ -15,6 +15,8 @@ from .constants import (
     BASE_URL,
     BOSS_CHAT_GEEK_INFO_URL,
     BOSS_CHATTED_JOB_LIST_URL,
+    BOSS_EXCHANGE_CONTENT_URL,
+    BOSS_EXCHANGE_REQUEST_URL,
     BOSS_FRIEND_DETAIL_URL,
     BOSS_FRIEND_LABELS_URL,
     BOSS_FRIEND_LIST_URL,
@@ -22,12 +24,15 @@ from .constants import (
     BOSS_GREET_REC_SORT_URL,
     BOSS_GREET_SORT_LIST_URL,
     BOSS_HISTORY_MSG_URL,
+    BOSS_INTERVIEW_INVITE_URL,
     BOSS_INTERVIEW_LIST_URL,
     BOSS_JOB_OFFLINE_URL,
     BOSS_JOB_ONLINE_URL,
     BOSS_LAST_MSG_URL,
+    BOSS_REMOVE_FILTER_URL,
     BOSS_SEARCH_GEEK_URL,
     BOSS_SEND_MSG_URL,
+    BOSS_SESSION_ENTER_URL,
     BOSS_VIEW_GEEK_URL,
     CITY_CODES,
     DELIVER_LIST_URL,
@@ -196,7 +201,10 @@ class BossClient:
         elif url in (BOSS_FRIEND_LIST_URL, BOSS_FRIEND_DETAIL_URL, BOSS_LAST_MSG_URL,
                       BOSS_HISTORY_MSG_URL, BOSS_CHAT_GEEK_INFO_URL, BOSS_FRIEND_LABELS_URL,
                       BOSS_FRIEND_NOTE_URL, BOSS_GREET_SORT_LIST_URL, BOSS_GREET_REC_SORT_URL,
-                      BOSS_CHATTED_JOB_LIST_URL, BOSS_INTERVIEW_LIST_URL):
+                      BOSS_CHATTED_JOB_LIST_URL, BOSS_INTERVIEW_LIST_URL,
+                      BOSS_EXCHANGE_REQUEST_URL, BOSS_EXCHANGE_CONTENT_URL,
+                      BOSS_INTERVIEW_INVITE_URL, BOSS_REMOVE_FILTER_URL,
+                      BOSS_SESSION_ENTER_URL):
             headers["Referer"] = WEB_BOSS_CHAT_URL
         return headers
 
@@ -557,6 +565,61 @@ class BossClient:
     def boss_job_online(self, encrypt_job_id: str) -> dict[str, Any]:
         """Bring a job posting online (reopen)."""
         return self._post(BOSS_JOB_ONLINE_URL, data={"encryptJobId": encrypt_job_id}, action="开启职位")
+
+    # ── Recruiter Chat Actions ────────────────────────────────────────
+
+    def boss_exchange_request(self, uid: int, job_id: int, exchange_type: int) -> dict[str, Any]:
+        """Request exchange with candidate.
+
+        exchange_type: 1=phone, 2=wechat, 3=resume
+        """
+        return self._post(
+            BOSS_EXCHANGE_REQUEST_URL,
+            data={"type": exchange_type, "uid": uid, "jobId": job_id},
+            action="交换请求",
+        )
+
+    def boss_get_exchange_content(self, uid: int) -> dict[str, Any]:
+        """Get exchanged contact info (phone/wechat) for a candidate."""
+        return self._post(
+            BOSS_EXCHANGE_CONTENT_URL,
+            data={"uid": uid},
+            action="查看交换内容",
+        )
+
+    def boss_interview_invite(
+        self, encrypt_geek_id: str, encrypt_job_id: str, security_id: str,
+        address: str = "", start_time: str = "", description: str = "",
+    ) -> dict[str, Any]:
+        """Invite candidate for an interview."""
+        data: dict[str, Any] = {
+            "encryptGeekId": encrypt_geek_id,
+            "encryptJobId": encrypt_job_id,
+            "securityId": security_id,
+        }
+        if address:
+            data["address"] = address
+        if start_time:
+            data["startTime"] = start_time
+        if description:
+            data["description"] = description
+        return self._post(BOSS_INTERVIEW_INVITE_URL, data=data, action="约面试")
+
+    def boss_mark_unsuitable(self, encrypt_geek_id: str, encrypt_job_id: str) -> dict[str, Any]:
+        """Mark candidate as unsuitable."""
+        return self._post(
+            BOSS_REMOVE_FILTER_URL,
+            data={"encryptGeekId": encrypt_geek_id, "encryptJobId": encrypt_job_id},
+            action="标记不合适",
+        )
+
+    def boss_session_enter(self, geek_id: str, expect_id: str, job_id: str, security_id: str) -> dict[str, Any]:
+        """Enter a chat session with a candidate (required before sending messages)."""
+        return self._post(
+            BOSS_SESSION_ENTER_URL,
+            data={"geekId": geek_id, "expectId": expect_id, "jobId": job_id, "securityId": security_id},
+            action="进入会话",
+        )
 
 
 # ── City resolution ─────────────────────────────────────────────────

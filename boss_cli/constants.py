@@ -65,6 +65,13 @@ BOSS_FRIEND_ADD_URL = "/wapi/zprelation/friend/bossAddFriend"
 BOSS_JOB_OFFLINE_URL = "/wapi/zpjob/job/offline"
 BOSS_JOB_ONLINE_URL = "/wapi/zpjob/job/online"
 
+# ── Recruiter Chat Actions ────────────────────────────────────────
+BOSS_EXCHANGE_REQUEST_URL = "/wapi/zpchat/exchange/request"
+BOSS_EXCHANGE_CONTENT_URL = "/wapi/zprelation/friend/getExchangeContent"
+BOSS_INTERVIEW_INVITE_URL = "/wapi/zpinterview/boss/interview/invite"
+BOSS_REMOVE_FILTER_URL = "/wapi/zprelation/friend/bossRemoveFilter"
+BOSS_SESSION_ENTER_URL = "/wapi/zpchat/session/bossEnter"
+
 # ── Request Headers (Chrome 145, macOS) ─────────────────────────────
 HEADERS = {
     "User-Agent": (

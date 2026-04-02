@@ -1021,3 +1021,237 @@ def recruiter_job_reopen(encrypt_job_id: str, yes: bool) -> None:
                 "  请尝试在浏览器中操作, 或重新登录后重试: boss logout && boss login[/yellow]"
             )
         raise SystemExit(1) from None
+
+
+# ── Recruiter Chat Actions ──────────────────────────────────────────
+
+_STOKEN_HINT = (
+    "[yellow]\u26a0\ufe0f 此操作需要 __zp_stoken__ (由浏览器 JS 生成)。"
+    "请先在浏览器登录后执行 boss login 补全 Cookie。[/yellow]"
+)
+
+
+def _handle_chat_action_error(exc: BossApiError, action_label: str) -> None:
+    """Print error with stoken hint when appropriate."""
+    msg = str(exc)
+    console.print(f"[red]{action_label}失败: {msg}[/red]")
+    if "缺少必要参数" in msg or "stoken" in msg.lower() or "<" in msg[:5]:
+        console.print(f"  {_STOKEN_HINT}")
+
+
+def _resolve_friend_uid_and_job(cred, friend_id: int) -> tuple[int, int]:
+    """Look up uid and jobId for a friendId from the inbox."""
+    data = run_client_action(
+        cred,
+        lambda c: c.get_boss_friend_details([friend_id]),
+    )
+    friend_list = data.get("friendList", [])
+    if not friend_list:
+        console.print(f"[red]未找到 friendId={friend_id} 的候选人信息[/red]")
+        raise SystemExit(1)
+    friend = friend_list[0]
+    uid = friend.get("uid", 0)
+    job_id = friend.get("jobId", 0)
+    if not uid:
+        console.print(f"[red]无法获取候选人 uid (friendId={friend_id})[/red]")
+        raise SystemExit(1)
+    return uid, job_id
+
+
+@recruiter.command("request-resume")
+@click.argument("friend_id", type=int)
+@click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
+@structured_output_options
+def recruiter_request_resume(friend_id: int, yes: bool, as_json: bool, as_yaml: bool) -> None:
+    """向候选人请求简历 (Request resume from candidate)"""
+    cred = require_auth()
+
+    if not yes:
+        console.print(f"[cyan]将向 friendId={friend_id} 请求简历[/cyan]")
+        confirm = click.confirm("确认请求?")
+        if not confirm:
+            console.print("[dim]已取消[/dim]")
+            return
+
+    uid, job_id = _resolve_friend_uid_and_job(cred, friend_id)
+
+    def _action(c: BossClient) -> dict:
+        return c.boss_exchange_request(uid=uid, job_id=job_id, exchange_type=3)
+
+    def _render(data: dict) -> None:
+        console.print(f"[green]已向候选人请求简历 (friendId={friend_id}, uid={uid})[/green]")
+
+    try:
+        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
+    except SystemExit:
+        raise
+    except BossApiError as exc:
+        _handle_chat_action_error(exc, "请求简历")
+        raise SystemExit(1) from None
+
+
+@recruiter.command("exchange-phone")
+@click.argument("friend_id", type=int)
+@click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
+@structured_output_options
+def recruiter_exchange_phone(friend_id: int, yes: bool, as_json: bool, as_yaml: bool) -> None:
+    """交换候选人手机号 (Exchange phone number with candidate)"""
+    cred = require_auth()
+
+    if not yes:
+        console.print(f"[cyan]将与 friendId={friend_id} 交换手机号[/cyan]")
+        confirm = click.confirm("确认交换?")
+        if not confirm:
+            console.print("[dim]已取消[/dim]")
+            return
+
+    uid, job_id = _resolve_friend_uid_and_job(cred, friend_id)
+
+    def _action(c: BossClient) -> dict:
+        return c.boss_exchange_request(uid=uid, job_id=job_id, exchange_type=1)
+
+    def _render(data: dict) -> None:
+        console.print(f"[green]已向候选人请求交换手机号 (friendId={friend_id}, uid={uid})[/green]")
+
+    try:
+        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
+    except SystemExit:
+        raise
+    except BossApiError as exc:
+        _handle_chat_action_error(exc, "交换手机号")
+        raise SystemExit(1) from None
+
+
+@recruiter.command("exchange-wechat")
+@click.argument("friend_id", type=int)
+@click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
+@structured_output_options
+def recruiter_exchange_wechat(friend_id: int, yes: bool, as_json: bool, as_yaml: bool) -> None:
+    """交换候选人微信 (Exchange WeChat with candidate)"""
+    cred = require_auth()
+
+    if not yes:
+        console.print(f"[cyan]将与 friendId={friend_id} 交换微信[/cyan]")
+        confirm = click.confirm("确认交换?")
+        if not confirm:
+            console.print("[dim]已取消[/dim]")
+            return
+
+    uid, job_id = _resolve_friend_uid_and_job(cred, friend_id)
+
+    def _action(c: BossClient) -> dict:
+        return c.boss_exchange_request(uid=uid, job_id=job_id, exchange_type=2)
+
+    def _render(data: dict) -> None:
+        console.print(f"[green]已向候选人请求交换微信 (friendId={friend_id}, uid={uid})[/green]")
+
+    try:
+        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
+    except SystemExit:
+        raise
+    except BossApiError as exc:
+        _handle_chat_action_error(exc, "交换微信")
+        raise SystemExit(1) from None
+
+
+@recruiter.command("invite-interview")
+@click.argument("encrypt_geek_id")
+@click.option("--job", "encrypt_job_id", required=True, help="关联职位 encryptJobId")
+@click.option("--address", default="", help="面试地点")
+@click.option("--time", "start_time", default="", help="面试开始时间")
+@click.option("--desc", "description", default="", help="面试说明")
+@click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
+@structured_output_options
+def recruiter_invite_interview(
+    encrypt_geek_id: str, encrypt_job_id: str, address: str,
+    start_time: str, description: str, yes: bool,
+    as_json: bool, as_yaml: bool,
+) -> None:
+    """邀请候选人面试 (Invite candidate for interview)"""
+    cred = require_auth()
+
+    if not yes:
+        console.print(f"[cyan]将邀请候选人面试: {encrypt_geek_id}[/cyan]")
+        if address:
+            console.print(f"  地点: {address}")
+        if start_time:
+            console.print(f"  时间: {start_time}")
+        confirm = click.confirm("确认邀请?")
+        if not confirm:
+            console.print("[dim]已取消[/dim]")
+            return
+
+    # securityId is derived from the friend list; try to look it up
+    security_id = ""
+    try:
+        friend_data = run_client_action(cred, lambda c: c.get_boss_friend_list())
+        for f in friend_data.get("result", []):
+            if f.get("encryptFriendId") == encrypt_geek_id:
+                detail = run_client_action(
+                    cred,
+                    lambda c, fid=f["friendId"]: c.get_boss_friend_details([fid]),
+                )
+                for fd in detail.get("friendList", []):
+                    security_id = fd.get("securityId", "")
+                    break
+                break
+    except BossApiError:
+        pass  # proceed without securityId; API may still accept it
+
+    def _action(c: BossClient) -> dict:
+        return c.boss_interview_invite(
+            encrypt_geek_id=encrypt_geek_id,
+            encrypt_job_id=encrypt_job_id,
+            security_id=security_id,
+            address=address,
+            start_time=start_time,
+            description=description,
+        )
+
+    def _render(data: dict) -> None:
+        console.print(f"[green]已发送面试邀请 -> {encrypt_geek_id}[/green]")
+
+    try:
+        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
+    except SystemExit:
+        raise
+    except BossApiError as exc:
+        _handle_chat_action_error(exc, "约面试")
+        raise SystemExit(1) from None
+
+
+@recruiter.command("mark-unsuitable")
+@click.argument("encrypt_geek_id")
+@click.option("--job", "encrypt_job_id", required=True, help="关联职位 encryptJobId")
+@click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
+@structured_output_options
+def recruiter_mark_unsuitable(
+    encrypt_geek_id: str, encrypt_job_id: str, yes: bool,
+    as_json: bool, as_yaml: bool,
+) -> None:
+    """标记候选人不合适 (Mark candidate as unsuitable)"""
+    cred = require_auth()
+
+    if not yes:
+        console.print(f"[cyan]将标记候选人为不合适: {encrypt_geek_id}[/cyan]")
+        confirm = click.confirm("确认标记?")
+        if not confirm:
+            console.print("[dim]已取消[/dim]")
+            return
+
+    def _action(c: BossClient) -> dict:
+        return c.boss_mark_unsuitable(
+            encrypt_geek_id=encrypt_geek_id,
+            encrypt_job_id=encrypt_job_id,
+        )
+
+    def _render(data: dict) -> None:
+        console.print(f"[green]已标记候选人为不合适 -> {encrypt_geek_id}[/green]")
+
+    try:
+        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
+    except SystemExit:
+        raise
+    except BossApiError as exc:
+        _handle_chat_action_error(exc, "标记不合适")
+        raise SystemExit(1) from None
