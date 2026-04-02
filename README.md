@@ -130,16 +130,21 @@ boss recruiter recommend -p 2                               # Next page
 # ─── Greet & Communicate (沟通) ──────────────────
 boss recruiter greet <encryptGeekId>                        # Initiate chat with candidate
 boss recruiter batch-greet "Python" --city 杭州 -n 10      # Batch greet top 10 matches
-boss recruiter batch-greet "golang" --dry-run               # Preview only
 boss recruiter inbox                                        # View candidate messages
 boss recruiter inbox --job <encryptJobId> -p 2              # Filter by job, page 2
 boss recruiter reply <friendId> "感谢您的关注..."            # Reply to candidate
 boss recruiter chat <friendId>                              # View chat history
 
+# ─── Chat Actions (沟通页操作) ───────────────────
+boss recruiter request-resume <friendId> --yes              # 求简历
+boss recruiter exchange-phone <friendId> --yes              # 换电话
+boss recruiter exchange-wechat <friendId> --yes             # 换微信
+boss recruiter invite-interview <geekId> --job <id>         # 约面试
+boss recruiter mark-unsuitable <geekId> --job <id>          # 不合适
+
 # ─── Resume (简历) ───────────────────────────────
 boss recruiter resume <encryptGeekId>                       # View full resume in terminal
 boss recruiter resume-download <id> --job <jobId>           # Download resume as Markdown
-boss recruiter resume-download <id> -o candidate.md         # Custom output path
 boss recruiter geek <encryptGeekId> --job-id 526908510      # Quick candidate info
 
 # ─── Job Management (职位管理) ───────────────────
@@ -376,6 +381,13 @@ boss recruiter greet <encryptGeekId>           # 向候选人打招呼
 boss recruiter batch-greet "Python" -n 10      # 批量打招呼
 boss recruiter inbox -p 1                      # 查看候选人消息
 boss recruiter reply <friendId> "您好..."       # 回复候选人
+
+# 沟通页操作
+boss recruiter request-resume <friendId>       # 求简历
+boss recruiter exchange-phone <friendId>       # 换电话
+boss recruiter exchange-wechat <friendId>      # 换微信
+boss recruiter invite-interview <id> --job <id> # 约面试
+boss recruiter mark-unsuitable <id> --job <id>  # 不合适
 
 # 简历
 boss recruiter resume <encryptGeekId>          # 终端查看简历
