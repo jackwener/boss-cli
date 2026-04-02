@@ -24,6 +24,9 @@ from .constants import (
     BOSS_HISTORY_MSG_URL,
     BOSS_INTERVIEW_LIST_URL,
     BOSS_LAST_MSG_URL,
+    BOSS_SEARCH_GEEK_URL,
+    BOSS_SEND_MSG_URL,
+    BOSS_VIEW_GEEK_URL,
     CITY_CODES,
     DELIVER_LIST_URL,
     FRIEND_ADD_URL,
@@ -184,6 +187,10 @@ class BossClient:
         elif url in (FRIEND_LIST_URL, FRIEND_ADD_URL):
             headers["Referer"] = WEB_GEEK_CHAT_URL
         # Recruiter (boss) endpoints
+        elif url == BOSS_SEARCH_GEEK_URL:
+            headers["Referer"] = f"{BASE_URL}/web/chat/search"
+        elif url in (BOSS_VIEW_GEEK_URL, BOSS_SEND_MSG_URL):
+            headers["Referer"] = WEB_BOSS_CHAT_URL
         elif url in (BOSS_FRIEND_LIST_URL, BOSS_FRIEND_DETAIL_URL, BOSS_LAST_MSG_URL,
                       BOSS_HISTORY_MSG_URL, BOSS_CHAT_GEEK_INFO_URL, BOSS_FRIEND_LABELS_URL,
                       BOSS_FRIEND_NOTE_URL, BOSS_GREET_SORT_LIST_URL, BOSS_GREET_REC_SORT_URL,
@@ -494,6 +501,52 @@ class BossClient:
     def get_boss_interview_list(self) -> dict[str, Any]:
         """Get boss interview list."""
         return self._get(BOSS_INTERVIEW_LIST_URL, action="面试列表")
+
+    def search_geeks(
+        self, query: str, city: str = "101020100", page: int = 1,
+        experience: str | None = None, degree: str | None = None,
+        salary: str | None = None, encrypt_job_id: str = "",
+    ) -> dict[str, Any]:
+        """Search candidates (geeks) as a recruiter."""
+        params: dict[str, Any] = {
+            "query": query, "city": city, "page": page,
+        }
+        if encrypt_job_id:
+            params["encryptJobId"] = encrypt_job_id
+        if experience:
+            params["experience"] = experience
+        if degree:
+            params["degree"] = degree
+        if salary:
+            params["salary"] = salary
+        return self._get(BOSS_SEARCH_GEEK_URL, params=params, action="搜索候选人")
+
+    def get_boss_recommend_geeks(self, page: int = 1, enc_job_id: str = "") -> dict[str, Any]:
+        """Get recommended candidates (new greetings sorted by recommendation)."""
+        params: dict[str, Any] = {"page": page}
+        if enc_job_id:
+            params["encJobId"] = enc_job_id
+        return self._get(BOSS_GREET_REC_SORT_URL, params=params, action="推荐候选人")
+
+    def get_boss_view_geek(
+        self, encrypt_geek_id: str, encrypt_job_id: str, security_id: str = "",
+    ) -> dict[str, Any]:
+        """Get full candidate resume/profile view."""
+        params: dict[str, Any] = {
+            "encryptGeekId": encrypt_geek_id,
+            "encryptJobId": encrypt_job_id,
+        }
+        if security_id:
+            params["securityId"] = security_id
+        return self._get(BOSS_VIEW_GEEK_URL, params=params, action="候选人简历")
+
+    def boss_send_message(self, gid: int, content: str) -> dict[str, Any]:
+        """Send a text message to a candidate as a recruiter."""
+        return self._post(
+            BOSS_SEND_MSG_URL,
+            data={"gid": gid, "content": content},
+            action="发送消息",
+        )
 
 
 # ── City resolution ─────────────────────────────────────────────────

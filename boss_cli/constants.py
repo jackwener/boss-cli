@@ -57,6 +57,11 @@ BOSS_GREET_SORT_LIST_URL = "/wapi/zprelation/friend/greetSort/getList"
 BOSS_GREET_REC_SORT_URL = "/wapi/zprelation/friend/greetRecSortList"
 BOSS_INTERVIEW_LIST_URL = "/wapi/zpinterview/boss/interview/valid/list"
 BOSS_INTERVIEW_DETAIL_URL = "/wapi/zpinterview/boss/interview/detail"
+BOSS_GREET_NEW_LIST_URL = "/wapi/zpchat/boss/newgreeting/getHistoryList"
+BOSS_SEARCH_GEEK_URL = "/wapi/zpitem/web/boss/search/geek/info"
+BOSS_VIEW_GEEK_URL = "/wapi/zpjob/view/geek/info"
+BOSS_SEND_MSG_URL = "/wapi/zpchat/fastReply/sendReplyMsg"
+BOSS_FRIEND_ADD_URL = "/wapi/zprelation/friend/bossAddFriend"
 
 # ── Request Headers (Chrome 145, macOS) ─────────────────────────────
 HEADERS = {

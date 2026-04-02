@@ -63,12 +63,7 @@ cli.add_command(social.batch_greet)
 
 # ─── Recruiter (Boss) commands ──────────────────────────────────────
 
-cli.add_command(recruiter.recruiter_jobs)
-cli.add_command(recruiter.recruiter_inbox)
-cli.add_command(recruiter.recruiter_geek)
-cli.add_command(recruiter.recruiter_chat)
-cli.add_command(recruiter.recruiter_labels)
-cli.add_command(recruiter.recruiter_export)
+cli.add_command(recruiter.recruiter)
 
 
 if __name__ == "__main__":
