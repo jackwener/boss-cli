@@ -176,8 +176,13 @@ class BossClient:
                 self.client.cookies.set(name, value)
 
     def _headers_for_request(self, url: str, params: dict[str, Any] | None = None) -> dict[str, str]:
-        """Build browser-like headers, including endpoint-specific Referer."""
+        """Build browser-like headers, including endpoint-specific Referer and zp_token."""
         headers = dict(HEADERS)
+        # Add security headers that the boss web app sends with every request
+        headers["X-Requested-With"] = "XMLHttpRequest"
+        bst = self.client.cookies.get("bst", "")
+        if bst:
+            headers["zp_token"] = bst
         if url == JOB_SEARCH_URL:
             query = ""
             if params and params.get("query"):
@@ -221,6 +226,13 @@ class BossClient:
             raise SessionExpiredError()
         if code in (17, 19):
             raise ParamError(message, code=code)
+        if code in (121, 122):
+            raise BossApiError(
+                f"{action}: 请求被安全系统拦截 (code={code})。"
+                "此操作需要浏览器环境的安全验证，CLI 暂不支持。"
+                "请在 BOSS直聘 网页端完成此操作。",
+                code=code, response=data,
+            )
         if code == 9:
             # Rate limited — auto-cooldown with exponential backoff
             self._rate_limit_count += 1
