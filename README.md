@@ -1,10 +1,12 @@
 # boss-cli
 
 [![PyPI version](https://img.shields.io/pypi/v/kabi-boss-cli.svg)](https://pypi.org/project/kabi-boss-cli/)
-[![CI](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/chengyixu/boss-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/chengyixu/boss-cli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://pypi.org/project/kabi-boss-cli/)
 
-A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications, and chat with recruiters via reverse-engineered API 🤝
+A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications, chat with recruiters, **and manage candidates as a recruiter** via reverse-engineered API 🤝
+
+> **Fork note:** This fork adds **recruiter (雇主端) mode** with 6 new commands for employers. See [Recruiter Mode](#recruiter-mode-雇主端) below.
 
 [English](#features) | [中文](#功能特性)
 
@@ -31,6 +33,7 @@ A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications
 - 🤝 **Greet** — send greetings to recruiters, single or batch (with 1.5s rate-limit delay)
 - 🏙️ **Cities** — 40+ supported cities
 - 🤖 **Agent-friendly** — structured output envelope (`{ok, schema_version, data}`), Rich output on stderr
+- 👔 **Recruiter Mode** — view posted jobs, manage candidates, chat history, export candidate data (CSV/JSON)
 
 ## Installation
 
@@ -111,6 +114,58 @@ boss batch-greet "Python" --salary 20-30K --dry-run  # Preview only
 boss cities                            # List supported cities
 boss --version                         # Show version
 boss -v search "Python"                # Verbose logging (request timing)
+```
+
+## Recruiter Mode (雇主端)
+
+If you are an employer on BOSS直聘, these commands let you manage candidates from the terminal:
+
+```bash
+# ─── View Your Posted Jobs ──────────────────────
+boss recruiter-jobs                          # List all posted jobs with encryptJobId
+boss recruiter-jobs --json                   # JSON output
+
+# ─── Candidate Inbox ────────────────────────────
+boss recruiter-inbox                         # View all candidate conversations
+boss recruiter-inbox --job <encryptJobId>    # Filter by specific job
+boss recruiter-inbox --label 1               # Filter by label (1=新招呼)
+
+# ─── Candidate Profile ──────────────────────────
+boss recruiter-geek <encryptGeekId>          # View candidate details
+boss recruiter-geek <id> --job-id 526908510  # With specific job context
+boss recruiter-geek <id> --json              # JSON output with full profile
+
+# ─── Chat History ───────────────────────────────
+boss recruiter-chat <friendId>               # View chat with candidate
+boss recruiter-chat <friendId> -n 50         # Last 50 messages
+
+# ─── Labels / Tags ──────────────────────────────
+boss recruiter-labels                        # List all candidate labels
+boss recruiter-labels --json                 # JSON output
+
+# ─── Export Candidates ──────────────────────────
+boss recruiter-export -o candidates.csv      # Export all candidates to CSV
+boss recruiter-export --job <id> -o out.csv  # Export candidates for a specific job
+boss recruiter-export --format json -o out.json  # Export as JSON
+```
+
+### Recruiter Workflow Example
+
+```bash
+# 1. Check your posted jobs
+boss recruiter-jobs
+
+# 2. See who messaged you for a specific job
+boss recruiter-inbox --job f806096ea327cd610nZ80t21FVNQ
+
+# 3. View a candidate's full profile
+boss recruiter-geek 9baf80468c8bc8980HZ82N25FlU~ --job-id 526908510
+
+# 4. Read chat history
+boss recruiter-chat 72630467
+
+# 5. Export all candidates for offline review
+boss recruiter-export --format json -o candidates.json
 ```
 
 ## Structured Output
@@ -201,7 +256,8 @@ boss_cli/
     ├── auth.py           # login (--cookie-source/--qrcode), logout, status, me
     ├── search.py         # search, recommend, detail, show, export, history, cities
     ├── personal.py       # applied, interviews
-    └── social.py         # chat, greet (--json), batch-greet (1.5s delay)
+    ├── social.py         # chat, greet (--json), batch-greet (1.5s delay)
+    └── recruiter.py      # recruiter-jobs, inbox, geek, chat, labels, export
 ```
 
 ## Development
@@ -254,6 +310,7 @@ Check your city filter. Some keywords are city-specific. Use `boss cities` to se
 - 🤝 **打招呼** — 向 Boss 打招呼/投递，支持批量操作（内置 1.5s 防风控延迟）
 - 🏙️ **城市** — 40+ 城市支持
 - 🤖 **Agent 友好** — 结构化输出 envelope，Rich 输出走 stderr
+- 👔 **招聘方模式** — 查看职位、候选人管理、聊天记录、导出候选人数据 (CSV/JSON)
 
 ## 使用示例
 
@@ -290,6 +347,30 @@ boss batch-greet "golang" --dry-run    # 预览
 # 工具
 boss cities                            # 城市列表
 boss -v search "Python"                # 详细日志
+```
+
+## 招聘方模式
+
+```bash
+# 查看招聘职位
+boss recruiter-jobs
+
+# 查看候选人列表
+boss recruiter-inbox                         # 全部候选人
+boss recruiter-inbox --job <encryptJobId>    # 按职位筛选
+
+# 查看候选人详情
+boss recruiter-geek <encryptGeekId> --job-id <jobId>
+
+# 查看聊天记录
+boss recruiter-chat <friendId>
+
+# 标签管理
+boss recruiter-labels
+
+# 导出候选人
+boss recruiter-export -o candidates.csv      # CSV 导出
+boss recruiter-export --format json -o out.json  # JSON 导出
 ```
 
 ## 常见问题
