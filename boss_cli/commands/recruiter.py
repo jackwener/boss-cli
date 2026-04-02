@@ -136,26 +136,29 @@ def recruiter_search(
 
 
 @recruiter.command("recommend")
-@click.option("-p", "--page", default=1, type=int, help="页码")
-@click.option("--job", "enc_job_id", default="", help="关联职位 encryptJobId")
+@click.option("-n", "--limit", "display_limit", default=0, type=int, help="显示数量 (0=全部)")
+@click.option("--job", "enc_job_id", default="", help="关联职位 encryptJobId (切换岗位)")
 @structured_output_options
-def recruiter_recommend(page: int, enc_job_id: str, as_json: bool, as_yaml: bool) -> None:
-    """推荐候选人列表 (greetRecSortList)"""
+def recruiter_recommend(display_limit: int, enc_job_id: str, as_json: bool, as_yaml: bool) -> None:
+    """推荐候选人列表 (支持 --job 切换岗位)"""
     cred = require_auth()
 
     def _action(c: BossClient) -> dict:
-        return c.get_boss_recommend_geeks(page=page, enc_job_id=enc_job_id)
+        return c.get_boss_recommend_geeks(page=1, enc_job_id=enc_job_id)
 
     def _render(data: dict) -> None:
         friend_list = data.get("friendList", [])
-        limit = data.get("limit", 0)
+        total = len(friend_list)
 
         if not friend_list:
             console.print("[yellow]暂无推荐候选人[/yellow]")
             return
 
+        if display_limit > 0:
+            friend_list = friend_list[:display_limit]
+
         table = Table(
-            title=f"推荐候选人 ({len(friend_list)} 人, 上限 {limit}) — 第 {page} 页",
+            title=f"推荐候选人 (显示 {len(friend_list)}/{total} 人)",
             show_lines=True,
         )
         table.add_column("#", style="dim", width=3)
@@ -178,10 +181,9 @@ def recruiter_recommend(page: int, enc_job_id: str, as_json: bool, as_yaml: bool
 
         console.print(table)
 
-        if friend_list:
-            console.print(f"  [dim]下一页: boss recruiter recommend -p {page + 1}[/dim]")
-        console.print("  [dim]切换职位: boss recruiter recommend --job <encryptJobId>[/dim]")
-        console.print("  [dim]查看职位列表: boss recruiter jobs[/dim]")
+        console.print("  [dim]💡 切换岗位: boss recruiter recommend --job <encryptJobId>[/dim]")
+        console.print("  [dim]   限制显示: boss recruiter recommend -n 10[/dim]")
+        console.print("  [dim]   查看职位: boss recruiter jobs[/dim]")
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
@@ -334,15 +336,15 @@ def recruiter_batch_greet(
 
 @recruiter.command("inbox")
 @click.option("--job", "enc_job_id", default="", help="按职位 encryptJobId 筛选")
-@click.option("--label", "label_id", default=0, type=int, help="按标签筛选 (0=全部)")
-@click.option("-p", "--page", default=1, type=int, help="页码 (默认: 1)")
+@click.option("--label", "label_id", default=0, type=int, help="按标签筛选 (0=全部, 1=新招呼, 2=沟通中)")
+@click.option("-n", "--limit", "display_limit", default=0, type=int, help="显示数量 (0=全部)")
 @structured_output_options
-def recruiter_inbox(enc_job_id: str, label_id: int, page: int, as_json: bool, as_yaml: bool) -> None:
+def recruiter_inbox(enc_job_id: str, label_id: int, display_limit: int, as_json: bool, as_yaml: bool) -> None:
     """查看候选人消息列表 (招聘方沟通列表)"""
     cred = require_auth()
 
     def _action(c: BossClient) -> dict:
-        friend_data = c.get_boss_friend_list(label_id=label_id, enc_job_id=enc_job_id, page=page)
+        friend_data = c.get_boss_friend_list(label_id=label_id, enc_job_id=enc_job_id)
         friend_list = friend_data.get("result", [])
 
         if not friend_list:
@@ -373,7 +375,11 @@ def recruiter_inbox(enc_job_id: str, label_id: int, page: int, as_json: bool, as
                 if uid:
                     msg_map[uid] = msg
 
-        table = Table(title=f"候选人列表 ({len(detail_list)} 人) — 第 {page} 页", show_lines=True)
+        total = len(detail_list)
+        if display_limit > 0:
+            detail_list = detail_list[:display_limit]
+
+        table = Table(title=f"候选人列表 (显示 {len(detail_list)}/{total} 人)", show_lines=True)
         table.add_column("#", style="dim", width=3)
         table.add_column("候选人", style="bold cyan", max_width=12)
         table.add_column("职位", style="green", max_width=20)
@@ -399,8 +405,8 @@ def recruiter_inbox(enc_job_id: str, label_id: int, page: int, as_json: bool, as
 
         console.print(table)
         console.print("  [dim]使用 boss recruiter resume <encryptGeekId> 查看候选人简历[/dim]")
-        if detail_list:
-            console.print(f"  [dim]下一页: boss recruiter inbox -p {page + 1}[/dim]")
+        console.print("  [dim]💡 限制显示: boss recruiter inbox -n 20[/dim]")
+        console.print("  [dim]   按标签筛选: boss recruiter inbox --label 1 (1=新招呼, 2=沟通中)[/dim]")
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
