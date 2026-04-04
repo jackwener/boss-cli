@@ -1,12 +1,10 @@
 # boss-cli
 
 [![PyPI version](https://img.shields.io/pypi/v/kabi-boss-cli.svg)](https://pypi.org/project/kabi-boss-cli/)
-[![CI](https://github.com/chengyixu/boss-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/chengyixu/boss-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://pypi.org/project/kabi-boss-cli/)
 
 A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications, chat with recruiters, **and manage candidates as a recruiter** via reverse-engineered API 🤝
-
-> **Fork note:** This fork adds **recruiter (雇主端) mode** with 6 new commands for employers. See [Recruiter Mode](#recruiter-mode-雇主端) below.
 
 [English](#features) | [中文](#功能特性)
 
