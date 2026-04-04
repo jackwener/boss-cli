@@ -4,7 +4,7 @@
 [![CI](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jackwener/boss-cli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://pypi.org/project/kabi-boss-cli/)
 
-A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications, and chat with recruiters via reverse-engineered API 🤝
+A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications, chat with recruiters, **and manage candidates as a recruiter** via reverse-engineered API 🤝
 
 [English](#features) | [中文](#功能特性)
 
@@ -31,6 +31,7 @@ A CLI for BOSS 直聘 — search jobs, view recommendations, manage applications
 - 🤝 **Greet** — send greetings to recruiters, single or batch (with 1.5s rate-limit delay)
 - 🏙️ **Cities** — 40+ supported cities
 - 🤖 **Agent-friendly** — structured output envelope (`{ok, schema_version, data}`), Rich output on stderr
+- 👔 **Recruiter Mode** — view posted jobs, manage candidates, chat history, export candidate data (CSV/JSON)
 
 ## Installation
 
@@ -111,6 +112,77 @@ boss batch-greet "Python" --salary 20-30K --dry-run  # Preview only
 boss cities                            # List supported cities
 boss --version                         # Show version
 boss -v search "Python"                # Verbose logging (request timing)
+```
+
+## Recruiter Mode (雇主端)
+
+If you are an employer on BOSS直聘, these commands let you manage candidates from the terminal:
+
+```bash
+# ─── Search & Discover (搜索 & 发现) ─────────────
+boss recruiter search "golang" --city 深圳 --exp 3-5年    # Search candidates
+boss recruiter recommend                                    # Recommended candidates
+boss recruiter recommend --job <encryptJobId>               # Switch to different 岗位
+boss recruiter recommend -p 2                               # Next page
+
+# ─── Greet & Communicate (沟通) ──────────────────
+boss recruiter greet <encryptGeekId>                        # Initiate chat with candidate
+boss recruiter batch-greet "Python" --city 杭州 -n 10      # Batch greet top 10 matches
+boss recruiter inbox                                        # View candidate messages
+boss recruiter inbox --job <encryptJobId> -p 2              # Filter by job, page 2
+boss recruiter reply <friendId> "感谢您的关注..."            # Reply to candidate
+boss recruiter chat <friendId>                              # View chat history
+
+# ─── Chat Actions (沟通页操作) ───────────────────
+boss recruiter request-resume <friendId> --yes              # 求简历
+boss recruiter exchange-phone <friendId> --yes              # 换电话
+boss recruiter exchange-wechat <friendId> --yes             # 换微信
+boss recruiter invite-interview <geekId> --job <id>         # 约面试
+boss recruiter mark-unsuitable <geekId> --job <id>          # 不合适
+
+# ─── Resume (简历) ───────────────────────────────
+boss recruiter resume <encryptGeekId>                       # View full resume in terminal
+boss recruiter resume-download <id> --job <jobId>           # Download resume as Markdown
+boss recruiter geek <encryptGeekId> --job-id 526908510      # Quick candidate info
+
+# ─── Job Management (职位管理) ───────────────────
+boss recruiter jobs                                         # List your posted jobs
+boss recruiter job-close <encryptJobId> --yes               # Take job offline
+boss recruiter job-reopen <encryptJobId> --yes              # Bring job back online
+
+# ─── Export & Tags ───────────────────────────────
+boss recruiter labels                                       # View candidate tags
+boss recruiter export -o candidates.csv                     # Export to CSV
+boss recruiter export --format json -o out.json             # Export to JSON
+```
+
+### Recruiter Workflow Example
+
+```bash
+# 1. Check your posted jobs
+boss recruiter jobs
+
+# 2. Browse recommended candidates for a specific job
+boss recruiter recommend --job f806096ea327cd610nZ80t21FVNQ
+
+# 3. Search for specific skills
+boss recruiter search "golang" --city 深圳
+
+# 4. View a candidate's full resume
+boss recruiter resume <encryptGeekId> --job <encryptJobId>
+
+# 5. Download resume for offline review
+boss recruiter resume-download <encryptGeekId> --job <encryptJobId>
+
+# 6. Start a conversation
+boss recruiter greet <encryptGeekId>
+
+# 7. Check inbox and reply
+boss recruiter inbox -p 1
+boss recruiter reply <friendId> "感谢您的关注，方便电话聊聊吗？"
+
+# 8. Export all candidates
+boss recruiter export --format json -o candidates.json
 ```
 
 ## Structured Output
@@ -201,7 +273,8 @@ boss_cli/
     ├── auth.py           # login (--cookie-source/--qrcode), logout, status, me
     ├── search.py         # search, recommend, detail, show, export, history, cities
     ├── personal.py       # applied, interviews
-    └── social.py         # chat, greet (--json), batch-greet (1.5s delay)
+    ├── social.py         # chat, greet (--json), batch-greet (1.5s delay)
+    └── recruiter.py      # recruiter-jobs, inbox, geek, chat, labels, export
 ```
 
 ## Development
@@ -254,6 +327,7 @@ Check your city filter. Some keywords are city-specific. Use `boss cities` to se
 - 🤝 **打招呼** — 向 Boss 打招呼/投递，支持批量操作（内置 1.5s 防风控延迟）
 - 🏙️ **城市** — 40+ 城市支持
 - 🤖 **Agent 友好** — 结构化输出 envelope，Rich 输出走 stderr
+- 👔 **招聘方模式** — 查看职位、候选人管理、聊天记录、导出候选人数据 (CSV/JSON)
 
 ## 使用示例
 
@@ -290,6 +364,41 @@ boss batch-greet "golang" --dry-run    # 预览
 # 工具
 boss cities                            # 城市列表
 boss -v search "Python"                # 详细日志
+```
+
+## 招聘方模式
+
+```bash
+# 搜索 & 推荐
+boss recruiter search "golang" --city 深圳 --exp 3-5年
+boss recruiter recommend --job <encryptJobId>  # 按岗位查看推荐牛人
+boss recruiter recommend -p 2                  # 翻页
+
+# 沟通
+boss recruiter greet <encryptGeekId>           # 向候选人打招呼
+boss recruiter batch-greet "Python" -n 10      # 批量打招呼
+boss recruiter inbox -p 1                      # 查看候选人消息
+boss recruiter reply <friendId> "您好..."       # 回复候选人
+
+# 沟通页操作
+boss recruiter request-resume <friendId>       # 求简历
+boss recruiter exchange-phone <friendId>       # 换电话
+boss recruiter exchange-wechat <friendId>      # 换微信
+boss recruiter invite-interview <id> --job <id> # 约面试
+boss recruiter mark-unsuitable <id> --job <id>  # 不合适
+
+# 简历
+boss recruiter resume <encryptGeekId>          # 终端查看简历
+boss recruiter resume-download <id> --job <id> # 下载简历为 Markdown
+
+# 职位管理
+boss recruiter jobs                            # 查看招聘职位
+boss recruiter job-close <encryptJobId>        # 关闭职位
+boss recruiter job-reopen <encryptJobId>       # 重新开启
+
+# 导出
+boss recruiter labels                          # 查看标签
+boss recruiter export -o candidates.csv        # 导出候选人
 ```
 
 ## 常见问题
