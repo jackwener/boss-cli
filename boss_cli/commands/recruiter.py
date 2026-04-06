@@ -1,4 +1,4 @@
-"""Recruiter (Boss) commands — Click subcommand group with 8+ commands."""
+"""Recruiter (Boss) commands — Click subcommand group with 20 commands."""
 
 from __future__ import annotations
 
