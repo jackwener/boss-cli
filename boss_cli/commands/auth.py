@@ -92,7 +92,7 @@ def login(qrcode: bool, cookie_source: str | None) -> None:
             # Show diagnostics hint if available
             hint = _diagnose_extraction_issues(diagnostics)
             if hint:
-                console.print(f"[yellow]⚠️  Cookie 提取诊断:[/yellow]")
+                console.print("[yellow]⚠️  Cookie 提取诊断:[/yellow]")
                 for line in hint.splitlines():
                     console.print(f"  [dim]{line}[/dim]")
                 console.print()
