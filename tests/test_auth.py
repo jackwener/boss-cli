@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # ── Diagnostics ─────────────────────────────────────────────────────
 
@@ -187,7 +185,6 @@ class TestExtractInProcess:
         from boss_cli.auth import _extract_in_process
 
         with patch.dict("sys.modules", {"browser_cookie3": None}):
-            import importlib
             cred, diag = _extract_in_process()
             # We can't easily remove from sys.modules in a test,
             # but at minimum verify the function returns a tuple
