@@ -137,14 +137,18 @@ def recruiter_search(
 
 @recruiter.command("recommend")
 @click.option("-n", "--limit", "display_limit", default=0, type=int, help="显示数量 (0=全部)")
+@click.option("-p", "--page", default=1, type=int, help="页码 (默认: 1)")
 @click.option("--job", "enc_job_id", default="", help="关联职位 encryptJobId (切换岗位)")
 @structured_output_options
-def recruiter_recommend(display_limit: int, enc_job_id: str, as_json: bool, as_yaml: bool) -> None:
-    """推荐候选人列表 (支持 --job 切换岗位)"""
+def recruiter_recommend(
+    display_limit: int, page: int, enc_job_id: str,
+    as_json: bool, as_yaml: bool,
+) -> None:
+    """推荐候选人列表 (支持 --job 切换岗位, -p 翻页)"""
     cred = require_auth()
 
     def _action(c: BossClient) -> dict:
-        return c.get_boss_recommend_geeks(page=1, enc_job_id=enc_job_id)
+        return c.get_boss_recommend_geeks(page=page, enc_job_id=enc_job_id)
 
     def _render(data: dict) -> None:
         friend_list = data.get("friendList", [])
@@ -227,27 +231,31 @@ def recruiter_greet(encrypt_geek_id: str, encrypt_job_id: str, as_json: bool, as
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
 
-# ── recruiter batch-greet ──────────────────────────────────────────
+# ── recruiter batch-view ──────────────────────────────────────────
 
 
-@recruiter.command("batch-greet")
+@recruiter.command("batch-view")
 @click.argument("keyword")
 @click.option("-c", "--city", default="上海", help="城市名称或代码")
-@click.option("-n", "--count", default=5, type=int, help="打招呼数量 (默认: 5)")
+@click.option("-n", "--count", default=5, type=int, help="查看数量 (默认: 5)")
 @click.option("--salary", type=click.Choice(list(SALARY_CODES.keys())), help="薪资筛选")
 @click.option("--exp", type=click.Choice(list(EXP_CODES.keys())), help="工作经验筛选")
 @click.option("--degree", type=click.Choice(list(DEGREE_CODES.keys())), help="学历筛选")
 @click.option("--job", "encrypt_job_id", default="", help="关联职位 encryptJobId")
-@click.option("--dry-run", is_flag=True, help="仅预览, 不实际发送")
+@click.option("--dry-run", is_flag=True, help="仅预览, 不实际查看")
 @click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
-def recruiter_batch_greet(
+def recruiter_batch_view(
     keyword: str, city: str, count: int,
     salary: str | None, exp: str | None, degree: str | None,
     encrypt_job_id: str, dry_run: bool, yes: bool,
 ) -> None:
-    """批量向搜索结果中的候选人发起沟通
+    """批量查看搜索结果中的候选人简历 (触发 "被查看" 通知)
 
-    例: boss recruiter batch-greet "golang" --city 上海 -n 10
+    BOSS 招聘方侧 "批量打招呼" 需要 __zp_stoken__，被反爬虫拦截。
+    此命令通过批量查看候选人简历实现被动外联: 候选人会收到
+    "某招聘方查看了你" 的提醒, 是可行的替代方案。
+
+    例: boss recruiter batch-view "golang" --city 上海 -n 10
     """
     cred = require_auth()
     city_code = resolve_city(city)
@@ -273,7 +281,7 @@ def recruiter_batch_greet(
         targets = geek_list[:count]
 
         # Preview table
-        table = Table(title=f"将向以下 {len(targets)} 个候选人发起沟通", show_lines=True)
+        table = Table(title=f"将查看以下 {len(targets)} 个候选人简历", show_lines=True)
         table.add_column("#", style="dim", width=3)
         table.add_column("姓名", style="bold cyan", max_width=12)
         table.add_column("职位", style="green", max_width=20)
@@ -294,7 +302,7 @@ def recruiter_batch_greet(
             return
 
         if not yes:
-            confirm = click.confirm(f"\n确定向 {len(targets)} 个候选人发起沟通吗?")
+            confirm = click.confirm(f"\n确定查看这 {len(targets)} 个候选人简历吗?")
             if not confirm:
                 console.print("[dim]已取消[/dim]")
                 return
@@ -1037,10 +1045,12 @@ _STOKEN_HINT = (
 )
 
 
-def _handle_chat_action_error(exc: BossApiError, action_label: str) -> None:
-    """Print error with stoken hint when appropriate."""
+def _chat_action_hint(exc: BossApiError) -> None:
+    """Print an extra stoken recovery hint to stderr if the error looks
+    like it was caused by a missing __zp_stoken__ cookie. Intended to be
+    passed to ``handle_command(..., error_hint=...)`` so it runs AFTER the
+    standard error is printed."""
     msg = str(exc)
-    console.print(f"[red]{action_label}失败: {msg}[/red]")
     if "缺少必要参数" in msg or "stoken" in msg.lower() or "<" in msg[:5]:
         console.print(f"  {_STOKEN_HINT}")
 
@@ -1087,13 +1097,11 @@ def recruiter_request_resume(friend_id: int, yes: bool, as_json: bool, as_yaml: 
     def _render(data: dict) -> None:
         console.print(f"[green]已向候选人请求简历 (friendId={friend_id}, uid={uid})[/green]")
 
-    try:
-        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
-    except SystemExit:
-        raise
-    except BossApiError as exc:
-        _handle_chat_action_error(exc, "请求简历")
-        raise SystemExit(1) from None
+    handle_command(
+        cred, action=_action, render=_render,
+        as_json=as_json, as_yaml=as_yaml,
+        error_hint=_chat_action_hint,
+    )
 
 
 @recruiter.command("exchange-phone")
@@ -1119,13 +1127,11 @@ def recruiter_exchange_phone(friend_id: int, yes: bool, as_json: bool, as_yaml: 
     def _render(data: dict) -> None:
         console.print(f"[green]已向候选人请求交换手机号 (friendId={friend_id}, uid={uid})[/green]")
 
-    try:
-        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
-    except SystemExit:
-        raise
-    except BossApiError as exc:
-        _handle_chat_action_error(exc, "交换手机号")
-        raise SystemExit(1) from None
+    handle_command(
+        cred, action=_action, render=_render,
+        as_json=as_json, as_yaml=as_yaml,
+        error_hint=_chat_action_hint,
+    )
 
 
 @recruiter.command("exchange-wechat")
@@ -1151,13 +1157,11 @@ def recruiter_exchange_wechat(friend_id: int, yes: bool, as_json: bool, as_yaml:
     def _render(data: dict) -> None:
         console.print(f"[green]已向候选人请求交换微信 (friendId={friend_id}, uid={uid})[/green]")
 
-    try:
-        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
-    except SystemExit:
-        raise
-    except BossApiError as exc:
-        _handle_chat_action_error(exc, "交换微信")
-        raise SystemExit(1) from None
+    handle_command(
+        cred, action=_action, render=_render,
+        as_json=as_json, as_yaml=as_yaml,
+        error_hint=_chat_action_hint,
+    )
 
 
 @recruiter.command("invite-interview")
@@ -1217,13 +1221,11 @@ def recruiter_invite_interview(
     def _render(data: dict) -> None:
         console.print(f"[green]已发送面试邀请 -> {encrypt_geek_id}[/green]")
 
-    try:
-        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
-    except SystemExit:
-        raise
-    except BossApiError as exc:
-        _handle_chat_action_error(exc, "约面试")
-        raise SystemExit(1) from None
+    handle_command(
+        cred, action=_action, render=_render,
+        as_json=as_json, as_yaml=as_yaml,
+        error_hint=_chat_action_hint,
+    )
 
 
 @recruiter.command("mark-unsuitable")
@@ -1254,10 +1256,8 @@ def recruiter_mark_unsuitable(
     def _render(data: dict) -> None:
         console.print(f"[green]已标记候选人为不合适 -> {encrypt_geek_id}[/green]")
 
-    try:
-        handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
-    except SystemExit:
-        raise
-    except BossApiError as exc:
-        _handle_chat_action_error(exc, "标记不合适")
-        raise SystemExit(1) from None
+    handle_command(
+        cred, action=_action, render=_render,
+        as_json=as_json, as_yaml=as_yaml,
+        error_hint=_chat_action_hint,
+    )

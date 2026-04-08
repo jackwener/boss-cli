@@ -92,6 +92,7 @@ def handle_command(
     render: Callable[[T], None] | None = None,
     as_json: bool = False,
     as_yaml: bool = False,
+    error_hint: Callable[[BossApiError], None] | None = None,
 ) -> T | None:
     """Run a client action with structured output support.
 
@@ -99,6 +100,10 @@ def handle_command(
     - If --yaml is set, print YAML envelope to stdout
     - If non-TTY and neither flag, auto YAML envelope
     - Otherwise, call render() for rich output
+
+    On BossApiError, prints the standard error then invokes ``error_hint``
+    (if provided) so callers can append a recovery hint to stderr before
+    the process exits.
     """
     try:
         data = run_client_action(credential, action)
@@ -113,6 +118,8 @@ def handle_command(
 
     except BossApiError as exc:
         _print_error(exc, as_json=as_json, as_yaml=as_yaml)
+        if error_hint is not None:
+            error_hint(exc)
         raise SystemExit(1) from None
 
 

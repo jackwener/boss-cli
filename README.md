@@ -127,7 +127,7 @@ boss recruiter recommend -p 2                               # Next page
 
 # ─── Greet & Communicate (沟通) ──────────────────
 boss recruiter greet <encryptGeekId>                        # Initiate chat with candidate
-boss recruiter batch-greet "Python" --city 杭州 -n 10      # Batch greet top 10 matches
+boss recruiter batch-view "Python" --city 杭州 -n 10       # Batch view top 10 (triggers "viewed" notice)
 boss recruiter inbox                                        # View candidate messages
 boss recruiter inbox --job <encryptJobId> -p 2              # Filter by job, page 2
 boss recruiter reply <friendId> "感谢您的关注..."            # Reply to candidate
@@ -376,7 +376,7 @@ boss recruiter recommend -p 2                  # 翻页
 
 # 沟通
 boss recruiter greet <encryptGeekId>           # 向候选人打招呼
-boss recruiter batch-greet "Python" -n 10      # 批量打招呼
+boss recruiter batch-view "Python" -n 10       # 批量查看 (触发被查看通知)
 boss recruiter inbox -p 1                      # 查看候选人消息
 boss recruiter reply <friendId> "您好..."       # 回复候选人
 

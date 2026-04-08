@@ -236,6 +236,6 @@ STAGE_CODES: dict[str, str] = {
 # ── Job type filter codes ──────────────────────────────────────────
 JOB_TYPE_CODES: dict[str, str] = {
     "全职": "1901",
+    "实习": "1902",
     "兼职": "1903",
-    "实习": "1903",
 }
