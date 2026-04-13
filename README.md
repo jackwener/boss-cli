@@ -344,7 +344,7 @@ Check your city filter. Some keywords are city-specific. Use `boss cities` to se
 
 ## 功能特性
 
-- 🔐 **认证** — 自动提取浏览器 Cookie（10+ 浏览器），二维码扫码登录，`--cookie-source` 指定浏览器
+- 🔐 **认证** — 自动提取浏览器 Cookie（10+ 浏览器），二维码扫码登录，支持 `--cookie-source` / `--cookie-file` / `--cookie`
 - 🔍 **搜索** — 按关键词搜索职位，支持城市/薪资/经验/学历/行业/规模/融资阶段/职位类型筛选
 - ⭐ **推荐** — 基于求职期望的个性化推荐
 - 📋 **详情 & 导出** — 职位详情，编号导航 (`boss show 3`)，CSV/JSON 导出
@@ -367,7 +367,8 @@ boss login --cookie-source chrome      # 指定浏览器
 boss status                            # 检查登录状态
 boss logout                            # 清除 Cookie
 boss login --cookie-file /path/cred.json   # 从文件导入 Cookie
-boss cookie-server                       # 启动本地 Cookie Bridge
+boss login --cookie "k=v; k2=v2"           # 从字符串导入 Cookie
+boss cookie-server --token xxx            # 启动本地 Cookie Bridge
 
 # 搜索 & 详情
 boss search "golang" --city 杭州       # 按城市搜索
@@ -450,8 +451,9 @@ boss recruiter export -o candidates.csv        # 导出候选人
    - `boss status --json`
 
 3. **Chrome 扩展实时同步**
-   - `boss cookie-server`
+   - `boss cookie-server --token <your-token>`
    - 在 Chrome 中加载 `chrome-extension/zhipin-cookie-extractor`
+   - 在扩展里填写相同的 `token` 并点击 Sync
 
 ## License
 
