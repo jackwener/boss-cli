@@ -1,5 +1,6 @@
 const statusEl = document.getElementById("status");
 const intervalSelect = document.getElementById("interval");
+const tokenInput = document.getElementById("token");
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -28,6 +29,9 @@ async function refreshStatus() {
   setStatus(`last sync: ${lastSync}\n${error}`);
   if (resp.intervalMin) {
     intervalSelect.value = String(resp.intervalMin);
+  }
+  if (resp.token) {
+    tokenInput.value = resp.token;
   }
 }
 
@@ -71,6 +75,19 @@ intervalSelect.addEventListener("change", async (e) => {
   const val = Number(e.target.value);
   await sendMessage({ type: "set_interval", intervalMin: val });
   setStatus(`auto-refresh set to ${val} min`);
+});
+
+tokenInput.addEventListener("change", async (e) => {
+  const val = e.target.value || "";
+  await sendMessage({ type: "set_token", token: val });
+  setStatus("token updated");
+});
+
+tokenInput.addEventListener("keyup", async (e) => {
+  if (e.key !== "Enter") return;
+  const val = e.target.value || "";
+  await sendMessage({ type: "set_token", token: val });
+  setStatus("token updated");
 });
 
 refreshStatus();

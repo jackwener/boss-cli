@@ -168,10 +168,11 @@ def logout() -> None:
 @click.command("cookie-server")
 @click.option("--host", default="127.0.0.1", show_default=True, help="监听地址")
 @click.option("--port", default=9876, show_default=True, type=int, help="监听端口")
-def cookie_server(host: str, port: int) -> None:
+@click.option("--token", default="", help="访问令牌 (请求头 X-Boss-Cookie-Token)")
+def cookie_server(host: str, port: int, token: str) -> None:
     """启动本地 Cookie Bridge 服务 (供浏览器扩展注入 Cookie)"""
     from ..cookie_server import run_cookie_server
-    run_cookie_server(host=host, port=port)
+    run_cookie_server(host=host, port=port, token=token or None)
 
 
 @click.command()

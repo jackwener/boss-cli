@@ -23,10 +23,13 @@ function cookiesToString(map) {
   return parts.join("; ");
 }
 
-async function sendToLocal(map) {
+async function sendToLocal(map, token) {
   const resp = await fetch("http://127.0.0.1:9876/cookies", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Boss-Cookie-Token": token || "",
+    },
     body: JSON.stringify({ cookies: map }),
   });
   if (!resp.ok) {
@@ -44,7 +47,8 @@ async function syncCookies() {
     return { ok: false, error: "no_cookies" };
   }
   try {
-    await sendToLocal(map);
+    const { token } = await chrome.storage.local.get(["token"]);
+    await sendToLocal(map, token || "");
     const now = Date.now();
     await chrome.storage.local.set({ lastSync: now, lastError: "" });
     return { ok: true, cookieCount: Object.keys(map).length, lastSync: now };
@@ -84,7 +88,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return;
     }
     if (msg && msg.type === "get_status") {
-      const data = await chrome.storage.local.get(["lastSync", "lastError", "intervalMin"]);
+      const data = await chrome.storage.local.get(["lastSync", "lastError", "intervalMin", "token"]);
       sendResponse({ ok: true, ...data });
       return;
     }
@@ -99,6 +103,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       await chrome.storage.local.set({ intervalMin });
       await scheduleAlarm();
       sendResponse({ ok: true, intervalMin });
+      return;
+    }
+    if (msg && msg.type === "set_token") {
+      await chrome.storage.local.set({ token: String(msg.token || "") });
+      sendResponse({ ok: true });
       return;
     }
     sendResponse({ ok: false, error: "unknown_message" });

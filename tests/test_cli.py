@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 from unittest.mock import MagicMock, patch
 
@@ -409,6 +410,55 @@ class TestCookieImport:
 
         paths = auth._iter_chrome_cookie_files("chrome")
         assert paths[0].endswith("Profile 2/Cookies")
+
+
+class TestCookieServer:
+    """Test cookie bridge ingestion."""
+
+    def test_cookie_server_rejects_unauthorized(self):
+        from boss_cli import cookie_server
+
+        handler = cookie_server._CookieHandler
+        handler.auth_token = "secret"
+        inst = object.__new__(handler)
+        inst.headers = {"X-Boss-Cookie-Token": "wrong"}
+        inst.path = "/cookies"
+        inst.rfile = io.BytesIO(b'{"cookies":{"a":"1"}}')
+        inst.wfile = io.BytesIO()
+
+        def _send_json(status, payload):
+            assert status == 401
+            assert payload["error"] == "unauthorized"
+
+        inst._send_json = _send_json  # type: ignore[assignment]
+        inst.do_POST()
+
+    def test_cookie_server_accepts_cookie_string(self, monkeypatch):
+        from boss_cli import cookie_server
+
+        handler = cookie_server._CookieHandler
+        handler.auth_token = None
+        inst = object.__new__(handler)
+        inst.headers = {"Content-Length": "8"}
+        inst.path = "/cookies"
+        inst.rfile = io.BytesIO(b"a=1; b=2")
+        inst.wfile = io.BytesIO()
+
+        saved: dict[str, str] = {}
+
+        def fake_save_credential(cred):
+            saved.update(cred.cookies)
+
+        monkeypatch.setattr(cookie_server, "save_credential", fake_save_credential)
+
+        def _send_json(status, payload):
+            assert status == 200
+            assert payload["ok"] is True
+
+        inst._send_json = _send_json  # type: ignore[assignment]
+        inst.do_POST()
+        assert saved["a"] == "1"
+        assert saved["b"] == "2"
 
 
 # ── Exceptions ──────────────────────────────────────────────────────
