@@ -207,22 +207,24 @@ def recruiter_greet(encrypt_geek_id: str, encrypt_job_id: str, as_json: bool, as
             if jobs:
                 job_id = jobs[0].get("encryptJobId", "")
 
-        # View the geek first to show info
-        if job_id:
-            info = c.get_boss_view_geek(
-                encrypt_geek_id=encrypt_geek_id,
-                encrypt_job_id=job_id,
-            )
-        else:
-            info = {"encryptGeekId": encrypt_geek_id, "note": "无关联职位, 无法获取详情"}
-        return info
+        if not job_id:
+            return {"error": "未找到关联职位, 请通过 --job 指定 encryptJobId"}
+
+        result = c.boss_add_friend(encrypt_geek_id=encrypt_geek_id, encrypt_job_id=job_id)
+        result["encryptJobId"] = job_id
+        return result
 
     def _render(data: dict) -> None:
-        geek_info = data.get("geekDetailInfo", data.get("geekBaseInfo", data))
-        base_info = geek_info.get("geekBaseInfo", geek_info) if isinstance(geek_info, dict) else data
-        name = base_info.get("name", base_info.get("geekName", "-"))
-        console.print(f"[cyan]候选人: {name}[/cyan]  encryptGeekId={encrypt_geek_id}")
-        console.print("[dim]提示: 使用 boss recruiter reply <friendId> <message> 发送消息[/dim]")
+        if data.get("error"):
+            console.print(f"[red]{data['error']}[/red]")
+            return
+        friend_id = data.get("friendId", data.get("gid", ""))
+        console.print(
+            f"[green]已向候选人发起沟通[/green] encryptGeekId={encrypt_geek_id} "
+            f"(job={data.get('encryptJobId', '-')})"
+        )
+        if friend_id:
+            console.print(f"[dim]提示: 使用 boss recruiter reply {friend_id} <message> 发送消息[/dim]")
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
@@ -303,20 +305,24 @@ def recruiter_batch_greet(
         for i, geek in enumerate(targets, 1):
             geek_id = geek.get("encryptGeekId", geek.get("encryptUid", ""))
             name = geek.get("name", geek.get("geekName", "?"))
+            job_id = encrypt_job_id or geek.get("encryptJobId", "")
 
             if not geek_id:
                 console.print(f"  [{i}] [yellow]跳过 {name} (无 encryptGeekId)[/yellow]")
+                continue
+            if not job_id:
+                console.print(f"  [{i}] [yellow]跳过 {name} (缺少 encryptJobId)[/yellow]")
                 continue
 
             try:
                 run_client_action(
                     cred,
-                    lambda client, gid=geek_id: client.get_boss_view_geek(
+                    lambda client, gid=geek_id, jid=job_id: client.boss_add_friend(
                         encrypt_geek_id=gid,
-                        encrypt_job_id=encrypt_job_id,
+                        encrypt_job_id=jid,
                     ),
                 )
-                console.print(f"  [{i}] [green]{name} - 已查看[/green]")
+                console.print(f"  [{i}] [green]{name} - 已打招呼[/green]")
                 success += 1
             except BossApiError as e:
                 console.print(f"  [{i}] [red]{name}: {e}[/red]")
@@ -398,7 +404,7 @@ def recruiter_inbox(enc_job_id: str, label_id: int, display_limit: int, as_json:
                 str(i),
                 friend.get("name", "-"),
                 friend.get("jobName", "-"),
-                friend.get("salaryDesc", friend.get("lastTime", "-")),
+                friend.get("salaryDesc", "-"),
                 last_text or "-",
                 msg_info.get("lastTime", friend.get("lastTime", "-")),
             )
@@ -431,11 +437,13 @@ def recruiter_reply(friend_id: int, message: str, yes: bool, as_json: bool, as_y
             console.print("[dim]已取消[/dim]")
             return
 
+    uid, _job_id = _resolve_friend_uid_and_job(cred, friend_id)
+
     def _action(c: BossClient) -> dict:
-        return c.boss_send_message(gid=friend_id, content=message)
+        return c.boss_send_message(gid=uid, content=message)
 
     def _render(data: dict) -> None:
-        console.print(f"[green]消息已发送 -> friendId={friend_id}[/green]")
+        console.print(f"[green]消息已发送 -> friendId={friend_id} (uid={uid})[/green]")
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
@@ -528,15 +536,7 @@ def recruiter_resume(
 
         # Auto-fetch securityId from friend list if not provided
         if not security_id:
-            friend_data = c.get_boss_friend_list()
-            for f in friend_data.get("result", []):
-                if f.get("encryptFriendId") == encrypt_geek_id:
-                    friend_ids = [f["friendId"]]
-                    details = c.get_boss_friend_details(friend_ids)
-                    for fd in details.get("friendList", []):
-                        security_id = fd.get("securityId", "")
-                        break
-                    break
+            security_id = _resolve_security_id_by_encrypt_geek(cred, encrypt_geek_id)
 
         return c.get_boss_view_geek(
             encrypt_geek_id=encrypt_geek_id,
@@ -668,8 +668,10 @@ def recruiter_chat(friend_id: int, count: int, as_json: bool, as_yaml: bool) -> 
     """查看与候选人的聊天记录 (需要 friendId)"""
     cred = require_auth()
 
+    uid, _job_id = _resolve_friend_uid_and_job(cred, friend_id)
+
     def _action(c: BossClient) -> dict:
-        return c.get_boss_chat_history(gid=friend_id, count=count)
+        return c.get_boss_chat_history(gid=uid, count=count)
 
     def _render(data: dict) -> None:
         messages = data.get("messages", [])
@@ -732,14 +734,7 @@ def recruiter_geek(
                 job_id = jobs[0].get("jobId", 0)
 
         if not security_id:
-            friend_data = c.get_boss_friend_list()
-            for f in friend_data.get("result", []):
-                if f.get("encryptFriendId") == encrypt_geek_id:
-                    friend_details = c.get_boss_friend_details([f["friendId"]])
-                    for fd in friend_details.get("friendList", []):
-                        security_id = fd.get("securityId", "")
-                        break
-                    break
+            security_id = _resolve_security_id_by_encrypt_geek(cred, encrypt_geek_id)
 
         return c.get_boss_chat_geek_info(
             encrypt_geek_id=encrypt_geek_id,
@@ -822,15 +817,7 @@ def recruiter_resume_download(
 
             # Auto-fetch securityId from friend list if not provided
             if not security_id:
-                friend_data = c.get_boss_friend_list()
-                for f in friend_data.get("result", []):
-                    if f.get("encryptFriendId") == encrypt_geek_id:
-                        friend_ids = [f["friendId"]]
-                        details = c.get_boss_friend_details(friend_ids)
-                        for fd in details.get("friendList", []):
-                            security_id = fd.get("securityId", "")
-                            break
-                        break
+                security_id = _resolve_security_id_by_encrypt_geek(cred, encrypt_geek_id)
 
             return c.get_boss_view_geek(
                 encrypt_geek_id=encrypt_geek_id,
@@ -1064,6 +1051,24 @@ def _resolve_friend_uid_and_job(cred, friend_id: int) -> tuple[int, int]:
     return uid, job_id
 
 
+def _resolve_security_id_by_encrypt_geek(cred, encrypt_geek_id: str) -> str:
+    """Resolve securityId by matching encryptGeekId/encryptUid/encryptFriendId."""
+    friend_data = run_client_action(cred, lambda c: c.get_boss_friend_list())
+    for f in friend_data.get("result", []):
+        if encrypt_geek_id in {
+            f.get("encryptGeekId", ""),
+            f.get("encryptUid", ""),
+            f.get("encryptFriendId", ""),
+        }:
+            details = run_client_action(cred, lambda c, fid=f["friendId"]: c.get_boss_friend_details([fid]))
+            for fd in details.get("friendList", []):
+                security_id = fd.get("securityId", "")
+                if security_id:
+                    return security_id
+            break
+    return ""
+
+
 @recruiter.command("request-resume")
 @click.argument("friend_id", type=int)
 @click.option("-y", "--yes", is_flag=True, help="跳过确认提示")
@@ -1190,17 +1195,7 @@ def recruiter_invite_interview(
     # securityId is derived from the friend list; try to look it up
     security_id = ""
     try:
-        friend_data = run_client_action(cred, lambda c: c.get_boss_friend_list())
-        for f in friend_data.get("result", []):
-            if f.get("encryptFriendId") == encrypt_geek_id:
-                detail = run_client_action(
-                    cred,
-                    lambda c, fid=f["friendId"]: c.get_boss_friend_details([fid]),
-                )
-                for fd in detail.get("friendList", []):
-                    security_id = fd.get("securityId", "")
-                    break
-                break
+        security_id = _resolve_security_id_by_encrypt_geek(cred, encrypt_geek_id)
     except BossApiError:
         pass  # proceed without securityId; API may still accept it
 

@@ -123,13 +123,13 @@ If you are an employer on BOSS直聘, these commands let you manage candidates f
 boss recruiter search "golang" --city 深圳 --exp 3-5年    # Search candidates
 boss recruiter recommend                                    # Recommended candidates
 boss recruiter recommend --job <encryptJobId>               # Switch to different 岗位
-boss recruiter recommend -p 2                               # Next page
+boss recruiter recommend -n 20                             # Limit display
 
 # ─── Greet & Communicate (沟通) ──────────────────
 boss recruiter greet <encryptGeekId>                        # Initiate chat with candidate
 boss recruiter batch-greet "Python" --city 杭州 -n 10      # Batch greet top 10 matches
 boss recruiter inbox                                        # View candidate messages
-boss recruiter inbox --job <encryptJobId> -p 2              # Filter by job, page 2
+boss recruiter inbox --job <encryptJobId> -n 20             # Filter by job, limit display
 boss recruiter reply <friendId> "感谢您的关注..."            # Reply to candidate
 boss recruiter chat <friendId>                              # View chat history
 
@@ -178,7 +178,7 @@ boss recruiter resume-download <encryptGeekId> --job <encryptJobId>
 boss recruiter greet <encryptGeekId>
 
 # 7. Check inbox and reply
-boss recruiter inbox -p 1
+boss recruiter inbox -n 20
 boss recruiter reply <friendId> "感谢您的关注，方便电话聊聊吗？"
 
 # 8. Export all candidates
@@ -372,12 +372,12 @@ boss -v search "Python"                # 详细日志
 # 搜索 & 推荐
 boss recruiter search "golang" --city 深圳 --exp 3-5年
 boss recruiter recommend --job <encryptJobId>  # 按岗位查看推荐牛人
-boss recruiter recommend -p 2                  # 翻页
+boss recruiter recommend -n 20                 # 限制显示
 
 # 沟通
 boss recruiter greet <encryptGeekId>           # 向候选人打招呼
 boss recruiter batch-greet "Python" -n 10      # 批量打招呼
-boss recruiter inbox -p 1                      # 查看候选人消息
+boss recruiter inbox -n 20                     # 查看候选人消息
 boss recruiter reply <friendId> "您好..."       # 回复候选人
 
 # 沟通页操作

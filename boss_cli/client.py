@@ -18,6 +18,7 @@ from .constants import (
     BOSS_EXCHANGE_CONTENT_URL,
     BOSS_EXCHANGE_REQUEST_URL,
     BOSS_FRIEND_DETAIL_URL,
+    BOSS_FRIEND_ADD_URL,
     BOSS_FRIEND_LABELS_URL,
     BOSS_FRIEND_LIST_URL,
     BOSS_FRIEND_NOTE_URL,
@@ -209,7 +210,7 @@ class BossClient:
                       BOSS_CHATTED_JOB_LIST_URL, BOSS_INTERVIEW_LIST_URL,
                       BOSS_EXCHANGE_REQUEST_URL, BOSS_EXCHANGE_CONTENT_URL,
                       BOSS_INTERVIEW_INVITE_URL, BOSS_REMOVE_FILTER_URL,
-                      BOSS_SESSION_ENTER_URL):
+                      BOSS_SESSION_ENTER_URL, BOSS_FRIEND_ADD_URL):
             headers["Referer"] = WEB_BOSS_CHAT_URL
         return headers
 
@@ -577,6 +578,14 @@ class BossClient:
             BOSS_SEND_MSG_URL,
             data={"gid": gid, "content": content},
             action="发送消息",
+        )
+
+    def boss_add_friend(self, encrypt_geek_id: str, encrypt_job_id: str) -> dict[str, Any]:
+        """Initiate chat/greet a candidate as a recruiter."""
+        return self._post(
+            BOSS_FRIEND_ADD_URL,
+            data={"encryptGeekId": encrypt_geek_id, "encryptJobId": encrypt_job_id},
+            action="打招呼",
         )
 
     def boss_job_offline(self, encrypt_job_id: str) -> dict[str, Any]:
