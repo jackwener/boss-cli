@@ -37,6 +37,7 @@ def cli(ctx, verbose: bool) -> None:
 
 cli.add_command(auth.login)
 cli.add_command(auth.logout)
+cli.add_command(auth.cookie_server)
 cli.add_command(auth.status)
 cli.add_command(auth.me)
 

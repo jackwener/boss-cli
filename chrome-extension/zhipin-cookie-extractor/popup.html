@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zhipin Cookie Extractor</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 12px;
+        min-width: 260px;
+        color: #111;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px 0;
+      }
+      .row {
+        margin: 6px 0;
+      }
+      button {
+        display: inline-block;
+        margin: 4px 0;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      select {
+        font-size: 12px;
+        padding: 4px;
+      }
+      .status {
+        font-size: 12px;
+        color: #555;
+        margin-top: 6px;
+        white-space: pre-line;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Zhipin Cookie Extractor</h1>
+
+    <div class="row">
+      Auto-refresh:
+      <select id="interval">
+        <option value="1">1 min</option>
+        <option value="3">3 min</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="30">30 min</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <button id="sync">Sync to boss-cli</button>
+      <button id="copy">Copy Cookie</button>
+      <button id="export">Export JSON</button>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import platform
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -198,6 +199,65 @@ def _diagnose_extraction_issues(diagnostics: list[str]) -> str | None:
     )
 
 
+# ── Cookie import helpers ───────────────────────────────────────────
+
+def _parse_cookie_string(raw: str) -> dict[str, str]:
+    """Parse cookie string formatted like 'k=v; k2=v2'."""
+    cookies: dict[str, str] = {}
+    for part in raw.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if k and v:
+            cookies[k] = v
+    return cookies
+
+
+def load_from_cookie_string(raw: str) -> Credential | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    cookies = _parse_cookie_string(raw)
+    if not cookies:
+        return None
+    cred = Credential(cookies=cookies)
+    logger.info("Loaded %d cookies from cookie string", len(cookies))
+    return cred
+
+
+def load_from_cookie_file(path: str) -> Credential | None:
+    """Load cookies from a file.
+
+    Supported formats:
+    - credential.json ({cookies:{...}}) or raw {"k":"v"} map
+    - plain cookie string: "k=v; k2=v2"
+    """
+    if not path:
+        return None
+    try:
+        raw = Path(path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        logger.warning("Failed to read cookie file: %s", exc)
+        return None
+    if not raw:
+        return None
+    # Try JSON first
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            cookies = data.get("cookies") if "cookies" in data else data
+            if isinstance(cookies, dict) and cookies:
+                cred = Credential(cookies={str(k): str(v) for k, v in cookies.items() if v})
+                logger.info("Loaded %d cookies from %s", len(cred.cookies), path)
+                return cred
+    except json.JSONDecodeError:
+        pass
+    # Fallback to cookie string
+    return load_from_cookie_string(raw)
+
+
 # ── Environment variable fallback ───────────────────────────────────
 
 def load_from_env() -> Credential | None:
@@ -208,20 +268,11 @@ def load_from_env() -> Credential | None:
     raw = os.environ.get("BOSS_COOKIES", "").strip()
     if not raw:
         return None
-    cookies: dict[str, str] = {}
-    for part in raw.split(";"):
-        part = part.strip()
-        if "=" not in part:
-            continue
-        k, v = part.split("=", 1)
-        k, v = k.strip(), v.strip()
-        if k and v:
-            cookies[k] = v
-    if not cookies:
+    cred = load_from_cookie_string(raw)
+    if not cred:
         logger.debug("BOSS_COOKIES env set but no valid key=value pairs found")
         return None
-    cred = Credential(cookies=cookies)
-    logger.info("Loaded %d cookies from BOSS_COOKIES environment variable", len(cookies))
+    logger.info("Loaded %d cookies from BOSS_COOKIES environment variable", len(cred.cookies))
     return cred
 
 
@@ -255,34 +306,49 @@ def _iter_chrome_cookie_files(browser_name: str) -> list[str]:
     if base_dir is None:
         return []
 
+    roots: list[str] = []
     if sys.platform == "darwin":
-        root = os.path.join(os.path.expanduser("~"), "Library", "Application Support", base_dir)
+        roots.append(os.path.join(os.path.expanduser("~"), "Library", "Application Support", base_dir))
     elif sys.platform == "win32":
         if browser_name == "edge":
-            root = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "User Data")
+            roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "User Data"))
         else:
-            root = os.path.join(os.environ.get("LOCALAPPDATA", ""), base_dir)
+            roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), base_dir))
     else:
         if browser_name == "edge":
-            root = os.path.join(os.path.expanduser("~"), ".config", "microsoft-edge")
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", "microsoft-edge"))
+        elif browser_name == "chrome":
+            # Chrome on Linux usually uses google-chrome (lowercase) instead of Google/Chrome.
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", "google-chrome"))
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", base_dir))
         else:
-            root = os.path.join(os.path.expanduser("~"), ".config", base_dir)
-
-    if not os.path.isdir(root):
-        return []
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", base_dir))
 
     paths: list[str] = []
-    default_cookies = os.path.join(root, "Default", "Cookies")
-    if os.path.exists(default_cookies):
-        paths.append(default_cookies)
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        default_cookies = os.path.join(root, "Default", "Cookies")
+        if os.path.exists(default_cookies):
+            paths.append(default_cookies)
 
-    profile_dirs = sorted(glob.glob(os.path.join(root, "Profile *")))
-    for profile_dir in profile_dirs:
-        cookie_file = os.path.join(profile_dir, "Cookies")
-        if os.path.exists(cookie_file):
-            paths.append(cookie_file)
+        profile_dirs = sorted(glob.glob(os.path.join(root, "Profile *")))
+        for profile_dir in profile_dirs:
+            cookie_file = os.path.join(profile_dir, "Cookies")
+            if os.path.exists(cookie_file):
+                paths.append(cookie_file)
 
-    return paths
+    if not paths:
+        return []
+
+    def _mtime(path: str) -> float:
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    # Prefer the most recently updated cookie DB (likely the active profile).
+    return sorted(paths, key=_mtime, reverse=True)
 
 
 def _extract_cookies_from_jar(jar: Any, source: str = "unknown") -> dict[str, str] | None:
@@ -415,29 +481,41 @@ def iter_cookie_files(browser_name):
     base_dir = CHROMIUM_BASE_DIRS.get(browser_name)
     if base_dir is None:
         return []
+    roots = []
     if sys.platform == "darwin":
-        root = os.path.join(os.path.expanduser("~"), "Library", "Application Support", base_dir)
+        roots.append(os.path.join(os.path.expanduser("~"), "Library", "Application Support", base_dir))
     elif sys.platform == "win32":
         if browser_name == "edge":
-            root = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "User Data")
+            roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "User Data"))
         else:
-            root = os.path.join(os.environ.get("LOCALAPPDATA", ""), base_dir)
+            roots.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), base_dir))
     else:
         if browser_name == "edge":
-            root = os.path.join(os.path.expanduser("~"), ".config", "microsoft-edge")
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", "microsoft-edge"))
+        elif browser_name == "chrome":
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", "google-chrome"))
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", base_dir))
         else:
-            root = os.path.join(os.path.expanduser("~"), ".config", base_dir)
-    if not os.path.isdir(root):
-        return []
+            roots.append(os.path.join(os.path.expanduser("~"), ".config", base_dir))
     paths = []
-    d = os.path.join(root, "Default", "Cookies")
-    if os.path.exists(d):
-        paths.append(d)
-    for pd in sorted(glob.glob(os.path.join(root, "Profile *"))):
-        cf = os.path.join(pd, "Cookies")
-        if os.path.exists(cf):
-            paths.append(cf)
-    return paths
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        d = os.path.join(root, "Default", "Cookies")
+        if os.path.exists(d):
+            paths.append(d)
+        for pd in sorted(glob.glob(os.path.join(root, "Profile *"))):
+            cf = os.path.join(pd, "Cookies")
+            if os.path.exists(cf):
+                paths.append(cf)
+    if not paths:
+        return []
+    def _mtime(path):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0
+    return sorted(paths, key=_mtime, reverse=True)
 
 browsers = [
     ("chrome", bc3.chrome),

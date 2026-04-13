@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Zhipin Cookie Extractor",
+  "version": "0.1.0",
+  "description": "Extract zhipin.com cookies and sync to boss-cli local server.",
+  "permissions": ["cookies", "storage", "alarms", "downloads", "clipboardWrite"],
+  "host_permissions": [
+    "https://www.zhipin.com/*",
+    "http://127.0.0.1:9876/*",
+    "http://localhost:9876/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Zhipin Cookie Extractor"
+  },
+  "background": {
+    "service_worker": "service_worker.js"
+  }
+}

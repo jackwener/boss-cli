@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -81,6 +82,8 @@ class TestCommandHelp:
         result = runner.invoke(cli, ["login", "--help"])
         assert "--cookie-source" in result.output
         assert "--qrcode" in result.output
+        assert "--cookie-file" in result.output
+        assert "--cookie" in result.output
 
     def test_history_has_options(self):
         result = runner.invoke(cli, ["history", "--help"])
@@ -359,6 +362,53 @@ class TestCredential:
         header = cred.as_cookie_header()
         assert "a=1" in header
         assert "b=2" in header
+
+
+class TestCookieImport:
+    """Test cookie import helpers."""
+
+    def test_load_from_cookie_string(self):
+        from boss_cli.auth import load_from_cookie_string
+        cred = load_from_cookie_string("a=1; b=2")
+        assert cred is not None
+        assert cred.cookies["a"] == "1"
+        assert cred.cookies["b"] == "2"
+
+    def test_load_from_cookie_file_json(self, tmp_path):
+        from boss_cli.auth import load_from_cookie_file
+        path = tmp_path / "cred.json"
+        path.write_text('{"cookies":{"a":"1","b":"2"}}', encoding="utf-8")
+        cred = load_from_cookie_file(str(path))
+        assert cred is not None
+        assert cred.cookies["a"] == "1"
+        assert cred.cookies["b"] == "2"
+
+    def test_iter_chrome_cookie_files_prefers_recent_profile(self, tmp_path, monkeypatch):
+        import boss_cli.auth as auth
+
+        home = tmp_path
+        root = home / ".config" / "google-chrome"
+        default = root / "Default" / "Cookies"
+        profile1 = root / "Profile 1" / "Cookies"
+        profile2 = root / "Profile 2" / "Cookies"
+        profile2.parent.mkdir(parents=True, exist_ok=True)
+        profile1.parent.mkdir(parents=True, exist_ok=True)
+        default.parent.mkdir(parents=True, exist_ok=True)
+        default.write_text("a", encoding="utf-8")
+        profile1.write_text("b", encoding="utf-8")
+        profile2.write_text("c", encoding="utf-8")
+
+        # Force mtime ordering: Profile 2 is newest
+        os.utime(default, (1, 1))
+        os.utime(profile1, (2, 2))
+        os.utime(profile2, (3, 3))
+
+        orig_expanduser = auth.os.path.expanduser
+        monkeypatch.setattr(auth.sys, "platform", "linux")
+        monkeypatch.setattr(auth.os.path, "expanduser", lambda p: str(home) if p == "~" else orig_expanduser(p))
+
+        paths = auth._iter_chrome_cookie_files("chrome")
+        assert paths[0].endswith("Profile 2/Cookies")
 
 
 # ── Exceptions ──────────────────────────────────────────────────────
