@@ -6,7 +6,10 @@ import csv
 import io
 import json
 import logging
+import os
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import click
 from rich.panel import Panel
@@ -1261,3 +1264,339 @@ def recruiter_mark_unsuitable(
         as_json=as_json, as_yaml=as_yaml,
         error_hint=_chat_action_hint,
     )
+
+
+# ── recruiter sync ──────────────────────────────────────────────────
+
+
+def _get_cache_dir(output_dir: str | None) -> Path:
+    """Resolve cache directory: --output-dir > $BOSS_CACHE_DIR > ~/.boss-cli/cache/"""
+    if output_dir:
+        return Path(output_dir)
+    env_dir = os.environ.get("BOSS_CACHE_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.home() / ".boss-cli" / "cache"
+
+
+def _build_candidate_md(data: dict) -> str:
+    """Build Markdown resume content from geek detail API response."""
+    if not data:
+        return "# (简历数据为空)\n"
+    geek_detail = data.get("geekDetailInfo") or data
+    if not isinstance(geek_detail, dict):
+        geek_detail = data
+    base_info = geek_detail.get("geekBaseInfo") or geek_detail
+    if not isinstance(base_info, dict):
+        base_info = {}
+
+    name = base_info.get("name", base_info.get("geekName", "candidate"))
+    gender_val = base_info.get("gender", 0)
+    gender = "男" if gender_val == 1 else "女" if gender_val == 2 else ""
+    degree = base_info.get("degreeCategory", base_info.get("degree", ""))
+    work_year = base_info.get("workYearDesc", base_info.get("workYear", ""))
+    age = base_info.get("ageDesc", base_info.get("age", ""))
+    apply_status = base_info.get("applyStatusContent", base_info.get("applyStatus", ""))
+    expect_position = base_info.get("expectPosition", "")
+    expect_city = base_info.get("expectCity", "")
+    expect_salary = base_info.get("expectSalary", base_info.get("salaryDesc", ""))
+
+    lines: list[str] = []
+    lines.append(f"# {name}")
+    lines.append("")
+
+    info_parts = [p for p in [gender, age, degree, work_year] if p]
+    if info_parts:
+        lines.append(" | ".join(info_parts))
+        lines.append("")
+
+    if apply_status:
+        lines.append(f"**求职状态:** {apply_status}")
+        lines.append("")
+
+    expect_parts = [p for p in [expect_position, expect_city, expect_salary] if p]
+    if expect_parts:
+        lines.append("## 求职期望")
+        lines.append("")
+        lines.append(" | ".join(expect_parts))
+        lines.append("")
+
+    work_exp = geek_detail.get("geekWorkExpList", base_info.get("workExpList", []))
+    if work_exp:
+        lines.append("## 工作经历")
+        lines.append("")
+        for w in work_exp:
+            company = w.get("company", w.get("companyName", ""))
+            position = w.get("positionName", w.get("position", ""))
+            time_desc = w.get("timeDesc", w.get("workTime", ""))
+            industry = w.get("industry", "")
+            desc = w.get("description", w.get("workDesc", ""))
+            header = f"### {company}"
+            if industry:
+                header += f" ({industry})"
+            lines.append(header)
+            lines.append("")
+            if time_desc:
+                lines.append(f"**{time_desc}** - {position}")
+            elif position:
+                lines.append(f"**{position}**")
+            lines.append("")
+            if desc:
+                lines.append(desc)
+                lines.append("")
+
+    edu_exp = geek_detail.get("geekEduExpList", base_info.get("eduExpList", []))
+    if edu_exp:
+        lines.append("## 教育经历")
+        lines.append("")
+        for e in edu_exp:
+            school = e.get("school", e.get("schoolName", ""))
+            major_name = e.get("major", e.get("majorName", ""))
+            degree_name = e.get("degree", e.get("degreeName", ""))
+            time_desc = e.get("timeDesc", e.get("eduTime", ""))
+            header = f"### {school}"
+            if degree_name:
+                header += f" - {degree_name}"
+            lines.append(header)
+            lines.append("")
+            parts = [p for p in [time_desc, major_name] if p]
+            if parts:
+                lines.append(" | ".join(parts))
+                lines.append("")
+
+    project_exp = geek_detail.get("geekProjectExpList", base_info.get("projectExpList", []))
+    if project_exp:
+        lines.append("## 项目经历")
+        lines.append("")
+        for p in project_exp:
+            proj_name = p.get("projectName", p.get("name", ""))
+            role = p.get("roleName", p.get("role", ""))
+            time_desc = p.get("timeDesc", p.get("projectTime", ""))
+            desc = p.get("description", p.get("projectDesc", ""))
+            header = f"### {proj_name}"
+            if role:
+                header += f" ({role})"
+            lines.append(header)
+            lines.append("")
+            if time_desc:
+                lines.append(f"**{time_desc}**")
+                lines.append("")
+            if desc:
+                lines.append(desc)
+                lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _sync_job(
+    client: BossClient,
+    job: dict,
+    cache_dir: Path,
+    force: bool,
+    dry_run: bool,
+) -> dict:
+    """Sync candidates for a single job. Returns a summary dict."""
+    enc_job_id = job["encryptJobId"]
+    job_name = job.get("jobName", enc_job_id)
+    job_dir = cache_dir / enc_job_id
+    meta_path = job_dir / "_meta.json"
+
+    # Load existing meta
+    existing_meta: dict = {}
+    if meta_path.exists():
+        try:
+            existing_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing_meta = {}
+
+    existing_uids: set[str] = set(existing_meta.get("candidates", []))
+    archived_uids: set[str] = set(existing_meta.get("archived_candidates", []))
+
+    # Check 24-hour cooldown (skip if not forced)
+    last_sync = existing_meta.get("last_sync_at")
+    if last_sync and not force:
+        try:
+            last_dt = datetime.fromisoformat(last_sync)
+            elapsed_h = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+            if elapsed_h < 24:
+                return {
+                    "job_name": job_name,
+                    "enc_job_id": enc_job_id,
+                    "skipped": True,
+                    "reason": f"上次同步于 {last_sync}，距今 {elapsed_h:.1f}h（< 24h），使用 --force 强制更新",
+                    "new": 0,
+                    "archived": 0,
+                    "total": len(existing_uids),
+                }
+        except Exception:
+            pass
+
+    # Fetch recommend list
+    rec_data = client.get_boss_recommend_geeks(enc_job_id=enc_job_id)
+    friend_list = rec_data.get("friendList", [])
+
+    current_uids: set[str] = {
+        f["encryptUid"] for f in friend_list if f.get("encryptUid")
+    }
+
+    # Incremental: only new uids (not in existing, not archived)
+    new_uids = current_uids - existing_uids - archived_uids
+    if force:
+        new_uids = current_uids  # re-fetch all when forced
+
+    # Candidates that disappeared from the recommend list
+    newly_archived = existing_uids - current_uids
+    archived_uids |= newly_archived
+
+    uid_to_friend = {f["encryptUid"]: f for f in friend_list if f.get("encryptUid")}
+
+    new_count = 0
+    errors: list[str] = []
+
+    if not dry_run:
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+    for uid in new_uids:
+        friend = uid_to_friend.get(uid, {})
+        security_id = friend.get("securityId", "")
+        name = friend.get("name", uid)
+
+        if dry_run:
+            console.print(f"  [dim][dry-run] 将写入: {enc_job_id}/{uid}.md ({name})[/dim]")
+            new_count += 1
+            continue
+
+        try:
+            detail = client.get_boss_view_geek(
+                encrypt_geek_id=uid,
+                encrypt_job_id=enc_job_id,
+                security_id=security_id,
+            )
+            md = _build_candidate_md(detail or {})
+            md_path = job_dir / f"{uid}.md"
+            md_path.write_text(md, encoding="utf-8")
+            new_count += 1
+            console.print(f"  [green]✓[/green] {name} ({uid[:12]}...)")
+        except BossApiError as exc:
+            errors.append(f"{uid}: {exc}")
+            console.print(f"  [yellow]✗[/yellow] {name} 拉取失败: {exc}")
+
+    # Update _meta.json
+    all_candidates = list((existing_uids | current_uids) - archived_uids)
+    meta = {
+        "job_name": job_name,
+        "job_id": job.get("jobId"),
+        "encrypt_job_id": enc_job_id,
+        "salary_desc": job.get("salaryDesc", ""),
+        "address": job.get("address", ""),
+        "job_online_status": job.get("jobOnlineStatus", 1),
+        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+        "total_candidates": len(all_candidates),
+        "new_this_sync": new_count,
+        "archived_candidates": sorted(archived_uids),
+        "candidates": sorted(all_candidates),
+    }
+
+    if not dry_run:
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "job_name": job_name,
+        "enc_job_id": enc_job_id,
+        "skipped": False,
+        "new": new_count,
+        "archived": len(newly_archived),
+        "total": len(all_candidates),
+        "errors": errors,
+    }
+
+
+@recruiter.command("sync")
+@click.option("--job", "enc_job_id", default="", help="只同步指定岗位 encryptJobId（默认同步所有在线岗位）")
+@click.option(
+    "--output-dir", "output_dir", default=None,
+    help="缓存根目录（默认: $BOSS_CACHE_DIR 或 ~/.boss-cli/cache/）",
+)
+@click.option("--force", is_flag=True, help="强制全量重拉（忽略24小时冷却，覆盖已有文件）")
+@click.option("--dry-run", is_flag=True, help="只打印将执行的操作，不实际写文件")
+@structured_output_options
+def recruiter_sync(
+    enc_job_id: str,
+    output_dir: str | None,
+    force: bool,
+    dry_run: bool,
+    as_json: bool,
+    as_yaml: bool,
+) -> None:
+    """将候选人简历缓存到本地 Markdown 文件（增量更新）
+
+    \b
+    目录结构:
+      {output_dir}/{encrypt_job_id}/_meta.json
+      {output_dir}/{encrypt_job_id}/{encrypt_uid}.md
+
+    \b
+    环境变量:
+      BOSS_CACHE_DIR  默认缓存目录（--output-dir 优先级更高）
+    """
+    cred = require_auth()
+    cache_dir = _get_cache_dir(output_dir)
+
+    if dry_run:
+        console.print(f"[cyan][dry-run 模式] 缓存目录: {cache_dir}[/cyan]")
+    else:
+        console.print(f"[dim]缓存目录: {cache_dir}[/dim]")
+
+    try:
+        with BossClient(cred) as client:
+            # Get job list
+            all_jobs = client.get_boss_chatted_jobs()
+
+            if enc_job_id:
+                jobs = [j for j in all_jobs if j.get("encryptJobId") == enc_job_id]
+                if not jobs:
+                    console.print(f"[red]未找到岗位: {enc_job_id}[/red]")
+                    raise SystemExit(1)
+            else:
+                jobs = [j for j in all_jobs if j.get("jobOnlineStatus") == 1]
+
+            console.print(f"共 [bold]{len(jobs)}[/bold] 个岗位待同步\n")
+
+            results = []
+            for job in jobs:
+                job_name = job.get("jobName", job.get("encryptJobId", ""))
+                console.print(f"[bold cyan]▶ {job_name}[/bold cyan]")
+                result = _sync_job(client, job, cache_dir, force=force, dry_run=dry_run)
+                results.append(result)
+
+                if result.get("skipped"):
+                    console.print(f"  [dim]跳过: {result['reason']}[/dim]")
+                else:
+                    console.print(
+                        f"  新增 [green]{result['new']}[/green] 人 | "
+                        f"归档 [yellow]{result['archived']}[/yellow] 人 | "
+                        f"总计 {result['total']} 人"
+                    )
+                console.print("")
+
+            # Summary
+            total_new = sum(r["new"] for r in results)
+            total_archived = sum(r["archived"] for r in results)
+            total_skipped = sum(1 for r in results if r.get("skipped"))
+
+            console.print(
+                f"[bold green]同步完成[/bold green] — "
+                f"新增 {total_new} 人 | 归档 {total_archived} 人 | "
+                f"跳过 {total_skipped} 个岗位"
+            )
+
+            if as_json:
+                import sys
+                print(json.dumps(
+                    {"ok": True, "schema_version": "1", "data": results},
+                    ensure_ascii=False, indent=2,
+                ), file=sys.stdout)
+
+    except BossApiError as exc:
+        console.print(f"[red]同步失败: {exc}[/red]")
+        raise SystemExit(1) from None

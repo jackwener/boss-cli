@@ -1,8 +1,8 @@
 ---
 name: boss-cli
-description: Use boss-cli for ALL BOSS 直聘 operations — searching jobs, viewing recommendations, managing applications, chatting with recruiters, and batch greeting. Invoke whenever the user requests any job search or recruitment platform interaction on BOSS 直聘.
+description: Use boss-cli for ALL BOSS 直聘 operations — searching jobs, viewing recommendations, managing applications, chatting with recruiters, batch greeting, and recruiter/employer mode (managing candidates, syncing resumes to local cache). Invoke whenever the user requests any job search, recruitment, or candidate management on BOSS 直聘.
 author: jackwener
-version: "0.3.0"
+version: "0.3.6"
 tags:
   - boss
   - zhipin
@@ -186,6 +186,103 @@ Structured error codes returned in the `error.code` field (see [SCHEMA.md](./SCH
 - `api_error` — upstream API error
 - `unknown_error` — unexpected error
 
+## Recruiter Mode (雇主端)
+
+All recruiter commands live under `boss recruiter <subcommand>`. Requires the same cookie auth as job-seeker mode.
+
+### Candidate Cache Sync (本地缓存同步) ⭐
+
+The most important recruiter workflow for AI analysis. Syncs candidate resumes to local Markdown files so they can be read and analyzed without real-time API calls.
+
+```bash
+# Sync all online jobs (incremental — skips already-cached candidates)
+boss recruiter sync --output-dir /path/to/workspace/candidates
+
+# Sync a specific job only
+boss recruiter sync --job <encryptJobId> --output-dir /path/to/workspace/candidates
+
+# Force full re-fetch (ignore 24h cooldown)
+boss recruiter sync --output-dir /path/to/candidates --force
+
+# Preview without writing files
+boss recruiter sync --dry-run
+
+# Set default cache dir via env var (openclaw workspace recommended)
+export BOSS_CACHE_DIR=/path/to/workspace/candidates
+boss recruiter sync
+```
+
+**Cache directory structure:**
+```
+$BOSS_CACHE_DIR/
+  /{encrypt_job_id}/
+    _meta.json          # Job info + last sync time + candidate uid list
+    /{encrypt_uid}.md   # Candidate resume in Markdown format
+```
+
+**_meta.json fields:** `job_name`, `encrypt_job_id`, `salary_desc`, `last_sync_at`, `total_candidates`, `new_this_sync`, `archived_candidates`, `candidates`
+
+**Incremental logic:** Only fetches candidates whose `encrypt_uid` is not already present in `_meta.json`. Candidates who disappear from the recommend list are marked `archived` (files kept).
+
+**24h cooldown:** Sync skips jobs updated within 24 hours unless `--force` is used.
+
+**Performance:** ~1s per candidate due to built-in rate-limit delay. Initial full sync of 200 candidates ≈ 4 minutes; incremental updates (few new candidates) ≈ 10-30 seconds.
+
+**To analyze cached candidates in openclaw:** Read `.md` files directly from `$BOSS_CACHE_DIR/{encrypt_job_id}/`. Use `_meta.json` to know which candidates exist and when data was last updated.
+
+### Job Management
+
+```bash
+boss recruiter jobs                                    # List posted jobs (encryptJobId needed for sync)
+boss recruiter jobs --json                             # JSON output
+```
+
+### Candidate Discovery
+
+```bash
+boss recruiter recommend --job <encryptJobId>          # Candidates who greeted this job (platform-sorted)
+boss recruiter search "政府事务" --city 上海            # Active search for candidates
+boss recruiter geek <encryptUid> --job-id <jobId>      # View one candidate's detail
+boss recruiter resume <encryptUid>                     # View full resume in terminal
+boss recruiter resume-download <encryptUid> --job <id> # Download resume as Markdown
+```
+
+### Communication (requires __zp_stoken__)
+
+```bash
+boss recruiter inbox --job <encryptJobId>              # Candidates who messaged you
+boss recruiter reply <friendId> "消息内容"              # Reply to candidate
+boss recruiter chat <friendId>                         # View chat history
+boss recruiter greet <encryptGeekId>                   # Initiate chat with candidate
+boss recruiter request-resume <uid> --yes              # Request resume from candidate
+boss recruiter exchange-phone <uid> --yes              # Exchange phone number
+boss recruiter invite-interview <geekId> --job <id>    # Invite for interview
+boss recruiter mark-unsuitable <geekId> --job <id>     # Mark as unsuitable
+```
+
+### Export
+
+```bash
+boss recruiter export -o candidates.csv                # Export candidate list to CSV
+boss recruiter export --format json -o out.json        # Export as JSON
+```
+
+### Recruiter Agent Workflow
+
+```bash
+# Step 1: Get job list and encryptJobIds
+boss recruiter jobs --json | jq '.data[] | select(.jobOnlineStatus==1) | {jobName, encryptJobId}'
+
+# Step 2: Sync candidates to local cache
+export BOSS_CACHE_DIR=./candidates
+boss recruiter sync
+
+# Step 3: Analyze from local files (no API needed)
+ls ./candidates/{encrypt_job_id}/        # List candidate files
+cat ./candidates/{encrypt_job_id}/_meta.json  # Check sync status
+cat ./candidates/{encrypt_job_id}/{uid}.md    # Read one resume
+```
+
 ## Limitations
 
 - **No message sending** — cannot send chat messages (MQTT/Protobuf required)
@@ -193,6 +290,7 @@ Structured error codes returned in the `error.code` field (see [SCHEMA.md](./SCH
 - **No company search** — company pages return HTML (need __zp_stoken__)
 - **Single account** — one set of cookies at a time
 - **Rate limited** — batch-greet has built-in 1.5s delay between greetings
+- **Communication commands need __zp_stoken__** — obtained only via browser cookie extraction, not QR login
 
 ## Anti-Detection Notes for Agents
 
