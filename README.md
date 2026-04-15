@@ -143,6 +143,7 @@ boss recruiter mark-unsuitable <geekId> --job <id>          # 不合适
 # ─── Resume (简历) ───────────────────────────────
 boss recruiter resume <encryptGeekId>                       # View full resume in terminal
 boss recruiter resume-download <id> --job <jobId>           # Download resume as Markdown
+boss recruiter resume-sync [encryptJobId]                   # Sync resumes to local cache (incremental)
 boss recruiter geek <encryptGeekId> --job-id 526908510      # Quick candidate info
 
 # ─── Job Management (职位管理) ───────────────────
@@ -171,8 +172,9 @@ boss recruiter search "golang" --city 深圳
 # 4. View a candidate's full resume
 boss recruiter resume <encryptGeekId> --job <encryptJobId>
 
-# 5. Download resume for offline review
+# 5. Download resume for offline review / sync all to local cache
 boss recruiter resume-download <encryptGeekId> --job <encryptJobId>
+boss recruiter resume-sync <encryptJobId>   # sync one job; omit ID to sync all
 
 # 6. Start a conversation
 boss recruiter greet <encryptGeekId>
