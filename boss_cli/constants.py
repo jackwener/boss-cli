@@ -40,6 +40,9 @@ INTERVIEW_DATA_URL = "/wapi/zpinterview/geek/interview/data.json"
 FRIEND_LIST_URL = "/wapi/zprelation/friend/getGeekFriendList.json"
 FRIEND_ADD_URL = "/wapi/zpgeek/friend/add.json"
 GEEK_GET_JOB_URL = "/wapi/zprelation/interaction/geekGetJob"
+GEEK_FRIEND_LIST_URL = "/wapi/zprelation/friend/geekFilterByLabel"
+GEEK_LAST_MSG_URL = "/wapi/zpchat/geek/userLastMsg"
+GEEK_HISTORY_MSG_URL = "/wapi/zpchat/geek/historyMsg"
 
 # ── Recruiter (Boss) API ──────────────────────────────────────────
 WEB_BOSS_CHAT_URL = f"{BASE_URL}/web/chat/index"

@@ -14,6 +14,9 @@ import httpx
 from .constants import (
     BASE_URL,
     BOSS_CHAT_GEEK_INFO_URL,
+    GEEK_FRIEND_LIST_URL,
+    GEEK_HISTORY_MSG_URL,
+    GEEK_LAST_MSG_URL,
     BOSS_CHATTED_JOB_LIST_URL,
     BOSS_EXCHANGE_CONTENT_URL,
     BOSS_EXCHANGE_REQUEST_URL,
@@ -196,7 +199,8 @@ class BossClient:
             headers["Referer"] = WEB_GEEK_JOB_URL
         elif url == JOB_HISTORY_URL:
             headers["Referer"] = WEB_GEEK_HISTORY_URL
-        elif url in (FRIEND_LIST_URL, FRIEND_ADD_URL):
+        elif url in (FRIEND_LIST_URL, FRIEND_ADD_URL, GEEK_FRIEND_LIST_URL,
+                      GEEK_LAST_MSG_URL, GEEK_HISTORY_MSG_URL):
             headers["Referer"] = WEB_GEEK_CHAT_URL
         # Recruiter (boss) endpoints
         elif url == BOSS_SEARCH_GEEK_URL:
@@ -453,6 +457,86 @@ class BossClient:
     def get_geek_job(self, security_id: str) -> dict[str, Any]:
         """Get interacted job info."""
         return self._get(GEEK_GET_JOB_URL, params={"securityId": security_id}, action="互动职位")
+
+    def get_ws_auth(self) -> tuple[str, str]:
+        """Return (page_token, wt2) for MQTT WebSocket authentication."""
+        user_info = self._get(USER_INFO_URL, action="用户信息")
+        page_token = user_info.get("token", "")
+        wt_data = self._get("/wapi/zppassport/get/wt", action="WS Token")
+        wt2 = wt_data.get("wt2", "")
+        return page_token, wt2
+
+    def get_geek_friend_list(self, label_id: int = 0, page: int = 1) -> dict[str, Any]:
+        """Get geek chat friend list (bosses who have chatted with you)."""
+        data: dict[str, Any] = {"labelId": label_id, "page": page}
+        return self._post(GEEK_FRIEND_LIST_URL, data=data, action="沟通列表")
+
+    def get_geek_last_messages(self, friend_ids: list[int]) -> list[dict[str, Any]]:
+        """Get last message for each boss friend (geek perspective)."""
+        ids_str = ",".join(str(fid) for fid in friend_ids)
+        result = self._get(GEEK_LAST_MSG_URL, params={"friendIds": ids_str}, action="最近消息")
+        return result if isinstance(result, list) else []
+
+    def get_geek_chat_history(self, boss_id: int, count: int = 20, max_msg_id: int = 0) -> dict[str, Any]:
+        """Get chat history with a specific boss (geek perspective)."""
+        params: dict[str, Any] = {"gid": boss_id, "c": count, "src": 0}
+        if max_msg_id:
+            params["maxMsgId"] = max_msg_id
+        return self._get(GEEK_HISTORY_MSG_URL, params=params, action="聊天记录")
+
+    def get_geek_boss_data(self, boss_id: int) -> dict[str, Any]:
+        """Get boss chat context data (securityId, encryptJobId, mobile, weixin, etc.)."""
+        result = self._get("/wapi/zpchat/geek/getBossData", params={"bossId": boss_id}, action="Boss信息")
+        return result.get("data", result)
+
+    def geek_exchange_request(self, boss_id: int, security_id: str, exchange_type: int) -> dict[str, Any]:
+        """Request exchange with a boss.
+
+        exchange_type: 1=phone, 2=wechat, 3=resume
+        securityId from get_geek_boss_data().
+        """
+        return self._post(
+            "/wapi/zpchat/exchange/request",
+            data={"type": exchange_type, "bossId": boss_id, "securityId": security_id},
+            action="交换请求",
+        )
+
+    def geek_send_resume(self, boss_id: int, security_id: str) -> dict[str, Any]:
+        """Send resume to a boss (exchange type=3)."""
+        return self.geek_exchange_request(boss_id, security_id, exchange_type=3)
+
+    def geek_request_phone(self, boss_id: int, security_id: str) -> dict[str, Any]:
+        """Request phone number exchange with a boss (exchange type=1)."""
+        return self.geek_exchange_request(boss_id, security_id, exchange_type=1)
+
+    def geek_request_wechat(self, boss_id: int, security_id: str) -> dict[str, Any]:
+        """Request WeChat exchange with a boss (exchange type=2)."""
+        return self.geek_exchange_request(boss_id, security_id, exchange_type=2)
+
+    def geek_accept_exchange(self, boss_id: int, mid: int, security_id: str = "") -> dict[str, Any]:
+        """Accept an exchange request from a boss (phone/wechat/resume/contact).
+
+        mid: msgId from the exchange request message (from userLastMsg).
+        securityId: from get_geek_boss_data() — optional but recommended.
+        """
+        data: dict[str, Any] = {"bossId": boss_id, "mid": mid}
+        if security_id:
+            data["securityId"] = security_id
+        return self._post("/wapi/zpchat/geek/acceptItemContact", data=data, action="接受交换请求")
+
+    def geek_reject_exchange(self, boss_id: int, mid: int, security_id: str = "") -> dict[str, Any]:
+        """Reject an exchange request from a boss."""
+        data: dict[str, Any] = {"bossId": boss_id, "mid": mid}
+        if security_id:
+            data["securityId"] = security_id
+        return self._post("/wapi/zpchat/geek/rejectItemContact", data=data, action="拒绝交换请求")
+
+    def geek_accept_wechat(self, boss_id: int, mid: int, security_id: str = "") -> dict[str, Any]:
+        """Accept a WeChat exchange request from a boss."""
+        data: dict[str, Any] = {"bossId": boss_id, "mid": mid}
+        if security_id:
+            data["securityId"] = security_id
+        return self._post("/wapi/zpchat/geek/acceptItemWeiXinRequest", data=data, action="接受微信交换请求")
 
     # ── Recruiter (Boss) Mode ────────────────────────────────────────
 
