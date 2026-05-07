@@ -1,20 +1,21 @@
 ---
 name: boss-cli
-description: Use boss-cli for ALL BOSS 直聘 operations — searching jobs, viewing recommendations, managing applications, chatting with recruiters, and batch greeting. Invoke whenever the user requests any job search or recruitment platform interaction on BOSS 直聘.
+description: Use boss-cli for BOSS 直聘 recruiter/employer operations — managing posted jobs, discovering candidates, syncing resumes to a local cache for AI analysis, and communicating with candidates. Invoke whenever the user requests any recruitment or candidate management on BOSS 直聘.
 author: jackwener
-version: "0.3.0"
+version: "0.3.6"
 tags:
   - boss
   - zhipin
   - boss直聘
-  - job-search
   - recruitment
+  - recruiter
   - cli
 ---
 
-# boss-cli — BOSS 直聘 CLI Tool
+# boss-cli — BOSS 直聘 招聘者 CLI
 
 **Binary:** `boss`
+**Scope of this skill:** recruiter (雇主端) commands only. Job-seeker commands exist but are not covered here.
 **Credentials:** browser cookies (auto-extracted from 10+ browsers) or QR code login (`--qrcode`)
 
 ## Setup
@@ -24,14 +25,13 @@ tags:
 uv tool install kabi-boss-cli
 # Or: pipx install kabi-boss-cli
 
-# Upgrade to latest (recommended)
+# Upgrade to latest
 uv tool upgrade kabi-boss-cli
-# Or: pipx upgrade kabi-boss-cli
 ```
 
 ## Authentication
 
-**IMPORTANT FOR AGENTS**: Before executing ANY boss command, check if credentials exist first. Do NOT assume cookies are configured.
+**IMPORTANT FOR AGENTS**: Before executing ANY boss command, check if credentials exist first.
 
 ### Step 0: Check if already authenticated
 
@@ -39,12 +39,12 @@ uv tool upgrade kabi-boss-cli
 boss status --json 2>/dev/null | jq -r '.authenticated' | grep -q true && echo "AUTH_OK" || echo "AUTH_NEEDED"
 ```
 
-If `AUTH_OK`, skip to [Command Reference](#command-reference).
+If `AUTH_OK`, skip to [Recruiter Commands](#recruiter-commands).
 If `AUTH_NEEDED`, proceed to Step 1.
 
 ### Step 1: Guide user to authenticate
 
-Ensure user is logged into zhipin.com in any supported browser (Chrome, Firefox, Edge, Brave, Arc, Chromium, Opera, Vivaldi, Safari, LibreWolf). Then:
+Ensure user is logged into zhipin.com (recruiter account) in any supported browser. Then:
 
 ```bash
 boss login                              # auto-detect browser with valid cookies
@@ -56,8 +56,37 @@ Verify with:
 
 ```bash
 boss status
-boss me --json | jq '.data.name'
 ```
+
+### `boss login --cdp` (recommended for recruiter mode)
+
+If the user is already logged into zhipin.com in a Chrome they started with `--remote-debugging-port=9222`, **no QR scan is needed** — `--cdp` reads cookies directly from that browser session.
+
+1. Launch Chrome with remote debugging:
+
+   ```bash
+   # macOS
+   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+     --remote-debugging-port=9222 \
+     --user-data-dir=/tmp/boss-chrome
+   # Linux
+   google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/boss-chrome
+   ```
+
+2. In that Chrome, log into `https://www.zhipin.com` (recruiter account).
+3. `pip install websocket-client` (one-time, optional dependency).
+4. Run:
+
+   ```bash
+   boss login --cdp                  # default port 9222
+   boss login --cdp --cdp-port 9333  # custom port
+   ```
+
+The required cookies are `wt2`, `wbg`, `zp_at`. **`__zp_stoken__` is no longer required** — it's JS-generated and frequently unobtainable; recruiter APIs like recommend / inbox / chat work without it. Search and some communication endpoints may return `环境异常` when stoken is missing.
+
+### `boss login --qrcode` (fallback)
+
+QR scan via the Boss app. Cannot obtain `__zp_stoken__` either, so the result is equivalent to `--cdp` minus stoken. Use when CDP is not available.
 
 ### Step 2: Handle common auth issues
 
@@ -70,110 +99,108 @@ boss me --json | jq '.data.name'
 
 ## Agent Defaults
 
-All machine-readable output uses the envelope documented in [SCHEMA.md](./SCHEMA.md).
-Payloads live under `.data`.
+All machine-readable output uses the envelope documented in [SCHEMA.md](./SCHEMA.md). Payloads live under `.data`.
 
 - Non-TTY stdout → auto YAML
 - `--json` / `--yaml` → explicit format
-- Rich output → **stderr** (safe for pipes: `boss search X --json | jq .data`)
+- Rich output → **stderr** (safe for pipes: `boss recruiter jobs --json | jq .data`)
 
-## Command Reference
+## Recruiter Commands
 
-### Search & Browse
+All recruiter commands live under `boss recruiter <subcommand>`.
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `boss search <keyword>` | Search jobs with filters | `boss search "golang" --city 杭州 --salary 20-30K` |
-| `boss show <index>` | View job #N from last search | `boss show 3` |
-| `boss detail <securityId>` | View full job details | `boss detail abc123 --json` |
-| `boss export <keyword>` | Export search results to CSV/JSON | `boss export "Python" -n 50 -o jobs.csv` |
-| `boss recommend` | Personalized recommendations | `boss recommend -p 2 --json` |
-| `boss history` | View browsing history | `boss history --json` |
-| `boss cities` | List supported cities | `boss cities` |
+### Candidate Cache Sync (本地缓存同步) ⭐
 
-### Personal Center
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `boss me` | View profile (name, age, degree) | `boss me --json` |
-| `boss applied` | View applied jobs | `boss applied -p 1 --json` |
-| `boss interviews` | View interview invitations | `boss interviews --json` |
-| `boss chat` | View communicated bosses | `boss chat --json` |
-
-### Actions
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `boss greet <securityId>` | Greet a boss / apply | `boss greet abc123 --json` |
-| `boss batch-greet <keyword>` | Batch greet from search | `boss batch-greet "Python" --city 杭州 -n 5` |
-| `boss batch-greet <keyword> --dry-run` | Preview without sending | `boss batch-greet "golang" --dry-run` |
-
-### Account
-
-| Command | Description |
-|---------|-------------|
-| `boss login` | Extract cookies from browser (auto-detect, fallback QR) |
-| `boss login --cookie-source <browser>` | Extract from specific browser |
-| `boss login --qrcode` | QR code login only (terminal QR output) |
-| `boss status` | Check authentication status (shows cookie names) |
-| `boss logout` | Clear saved credentials |
-
-## Search Filter Options
-
-| Filter | Flag | Values |
-|--------|------|--------|
-| City | `--city` | 北京, 上海, 杭州, 深圳, etc. (use `boss cities` for full list) |
-| Salary | `--salary` | 3K以下, 3-5K, 5-10K, 10-15K, 15-20K, 20-30K, 30-50K, 50K以上 |
-| Experience | `--exp` | 不限, 在校/应届, 1年以内, 1-3年, 3-5年, 5-10年, 10年以上 |
-| Degree | `--degree` | 不限, 大专, 本科, 硕士, 博士 |
-| Industry | `--industry` | 互联网, 电子商务, 游戏, 人工智能, 金融, 教育培训, 医疗健康, etc. |
-| Company Scale | `--scale` | 0-20人, 20-99人, 100-499人, 500-999人, 1000-9999人, 10000人以上 |
-| Funding Stage | `--stage` | 未融资, 天使轮, A轮, B轮, C轮, D轮及以上, 已上市, 不需要融资 |
-| Job Type | `--job-type` | 全职, 兼职, 实习 |
-
-## Agent Workflow Examples
-
-### Search → Batch Greet pipeline
+The most important recruiter workflow for AI analysis. Syncs candidate resumes to local Markdown files so they can be read and analyzed without real-time API calls.
 
 ```bash
-# Preview first
-boss batch-greet "golang" --city 杭州 --salary 20-30K --dry-run
-# Then execute
-boss batch-greet "golang" --city 杭州 --salary 20-30K -n 10 -y
+# Sync all online jobs (incremental — skips already-cached candidates)
+boss recruiter resume-sync
+
+# Sync a specific job only
+boss recruiter resume-sync <encryptJobId>
+
+# Specify output directory
+boss recruiter resume-sync <encryptJobId> --output-dir /path/to/workspace/candidates
+
+# Force full re-fetch
+boss recruiter resume-sync --force
+
+# Preview without writing files
+boss recruiter resume-sync --dry-run
+
+# Set default cache dir via env var
+export BOSS_CACHE_DIR=/path/to/workspace/candidates
+boss recruiter resume-sync
 ```
 
-### Search → Detail pipeline (structured)
-
-```bash
-# Search and extract securityId
-SEC_ID=$(boss search "golang" --city 杭州 --json | jq -r '.data.jobList[0].securityId')
-# Get full detail
-boss detail "$SEC_ID" --json | jq '.data.jobInfo | {jobName, salaryDesc, skills}'
+**Cache directory structure:**
+```
+$BOSS_CACHE_DIR/
+  /{encrypt_job_id}/
+    _meta.json          # Job info + last sync time + candidate uid list
+    /{encrypt_uid}.md   # Candidate resume in Markdown format
 ```
 
-### Daily job check workflow
+**_meta.json fields:** `job_name`, `encrypt_job_id`, `salary_desc`, `last_sync_at`, `total_candidates`, `new_this_sync`, `archived_candidates`, `candidates`
+
+**Incremental logic:** Only fetches candidates whose `encrypt_uid` is not already present in `_meta.json`. Candidates who disappear from the recommend list are marked `archived` (files kept).
+
+**Performance:** ~1s per candidate due to built-in rate-limit delay. Initial full sync of 200 candidates ≈ 4 minutes; incremental updates (few new candidates) ≈ 10-30 seconds.
+
+**To analyze cached candidates:** Read `.md` files directly from `$BOSS_CACHE_DIR/{encrypt_job_id}/`. Use `_meta.json` to know which candidates exist and when data was last updated.
+
+### Job Management
 
 ```bash
-boss recommend --json | jq '.data.jobList | length'  # Check recommendations count
-boss search "Python" --city 杭州 --json               # Search specific jobs
-boss show 1                                            # View top result details
-boss applied --json                                    # Check application status
-boss interviews --json                                 # Check interview invitations
-boss chat --json                                       # Check messages
-boss history --json                                    # Review browsing history
+boss recruiter jobs                                    # List posted jobs (encryptJobId needed for sync)
+boss recruiter jobs --json                             # JSON output
 ```
 
-### Export pipeline
+### Candidate Discovery
 
 ```bash
-boss export "golang" --city 杭州 --salary 20-30K -n 50 -o jobs.csv
-boss export "Python" -n 100 --format json -o jobs.json
+boss recruiter recommend --job <encryptJobId>          # Candidates who greeted this job (platform-sorted)
+boss recruiter search "政府事务" --city 上海            # Active search for candidates
+boss recruiter geek <encryptUid> --job-id <jobId>      # View one candidate's detail
+boss recruiter resume <encryptUid>                     # View full resume in terminal
+boss recruiter resume-download <encryptUid> --job <id> # Download resume as Markdown
 ```
 
-### Profile check
+### Communication (requires __zp_stoken__)
 
 ```bash
-boss me --json | jq '.data | {name, age, degreeCategory}'
+boss recruiter inbox --job <encryptJobId>              # Candidates who messaged you
+boss recruiter reply <friendId> "消息内容"              # Reply to candidate
+boss recruiter chat <friendId>                         # View chat history
+boss recruiter greet <encryptGeekId>                   # Initiate chat with candidate
+boss recruiter request-resume <uid> --yes              # Request resume from candidate
+boss recruiter exchange-phone <uid> --yes              # Exchange phone number
+boss recruiter invite-interview <geekId> --job <id>    # Invite for interview
+boss recruiter mark-unsuitable <geekId> --job <id>     # Mark as unsuitable
+```
+
+### Export
+
+```bash
+boss recruiter export -o candidates.csv                # Export candidate list to CSV
+boss recruiter export --format json -o out.json        # Export as JSON
+```
+
+## Recruiter Agent Workflow
+
+```bash
+# Step 1: Get job list and encryptJobIds
+boss recruiter jobs --json | jq '.data[] | select(.jobOnlineStatus==1) | {jobName, encryptJobId}'
+
+# Step 2: Sync candidates to local cache
+export BOSS_CACHE_DIR=./candidates
+boss recruiter resume-sync
+
+# Step 3: Analyze from local files (no API needed)
+ls ./candidates/{encrypt_job_id}/             # List candidate files
+cat ./candidates/{encrypt_job_id}/_meta.json  # Check sync status
+cat ./candidates/{encrypt_job_id}/{uid}.md    # Read one resume
 ```
 
 ## Error Codes
@@ -188,18 +215,16 @@ Structured error codes returned in the `error.code` field (see [SCHEMA.md](./SCH
 
 ## Limitations
 
-- **No message sending** — cannot send chat messages (MQTT/Protobuf required)
-- **No resume editing** — cannot edit resume from CLI
-- **No company search** — company pages return HTML (need __zp_stoken__)
+- **No message sending via MQTT** — only HTTP-based reply/greet
 - **Single account** — one set of cookies at a time
-- **Rate limited** — batch-greet has built-in 1.5s delay between greetings
+- **Rate limited** — built-in delays between requests
+- **Communication commands need __zp_stoken__** — obtained via browser cookie extraction or CDP hydration, not pure QR login
 
 ## Anti-Detection Notes for Agents
 
 - **Do NOT parallelize requests** — built-in Gaussian jitter delays exist for account safety
-- **Rate-limit auto-recovery**: if code=9 occurs, client auto-cools-down with increasing delays (10s→20s→40s→60s) and retries once
-- **Use `-v` flag for debugging**: `boss -v search "Python"` shows request timing
-- **Batch greet limit**: recommend ≤ 10 greetings per session to avoid detection
+- **Rate-limit auto-recovery**: if code=9 occurs, client auto-cools-down (10s→20s→40s→60s) and retries once
+- **Use `-v` flag for debugging**: `boss -v recruiter jobs` shows request timing
 - **Cookies auto-refresh**: if ≥ 7 days old, boss-cli auto-tries browser extraction
 - **Re-login if `__zp_stoken__` expires**: run `boss logout && boss login`
 
@@ -207,6 +232,22 @@ Structured error codes returned in the `error.code` field (see [SCHEMA.md](./SCH
 
 - Do not ask users to share raw cookie values in chat logs.
 - Prefer local browser cookie extraction over manual secret copy/paste.
-- If auth fails, ask the user to re-login via `boss login`.
-- Agent should treat cookie values as secrets (do not echo to stdout).
+- Treat cookie values as secrets (do not echo to stdout).
 - Built-in rate-limit delay protects accounts; do not bypass it.
+
+## 候选人缓存策略说明（Agent 必读）
+
+### 300人上限问题
+BOSS直聘推荐列表每次最多返回 **300 人**，翻页返回相同数据（无效翻页）。
+这是平台硬限制，无法突破。
+
+### 正确的增量同步策略
+- 推荐列表会**动态变化**：新候选人投递后会出现，旧的会消失
+- `resume-sync` 的增量逻辑：将新出现的 uid 与本地 `_meta.json` 中的 `candidates` 列表对比
+- 消失的候选人标记为 `archived`，简历文件**保留不删除**
+- 定期同步可以积累超过300人的历史候选人库
+
+### 建议同步频率
+- 热门岗位（候选人多）：每天同步 1 次
+- 一般岗位：每 2-3 天同步 1 次
+- 使用 `--force` 强制覆盖时，会重新拉取当前推荐列表中的所有人

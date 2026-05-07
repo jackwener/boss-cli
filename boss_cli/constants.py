@@ -93,7 +93,9 @@ HEADERS = {
 }
 
 # ── Cookie keys required for authenticated sessions ─────────────────
-REQUIRED_COOKIES = {"__zp_stoken__", "wt2", "wbg", "zp_at"}
+# __zp_stoken__ is JS-generated and not always obtainable; treat it as optional.
+# wt2 / wbg / zp_at are sufficient for ~half of recruiter APIs.
+REQUIRED_COOKIES = {"wt2", "wbg", "zp_at"}
 
 # ── City codes ──────────────────────────────────────────────────────
 CITY_CODES: dict[str, str] = {
