@@ -121,9 +121,8 @@ If you are an employer on BOSS直聘, these commands let you manage candidates f
 ```bash
 # ─── Search & Discover (搜索 & 发现) ─────────────
 boss recruiter search "golang" --city 深圳 --exp 3-5年    # Search candidates
-boss recruiter recommend                                    # Recommended candidates
-boss recruiter recommend --job <encryptJobId>               # Switch to different 岗位
-boss recruiter recommend -p 2                               # Next page
+boss recruiter recommend --job <encryptJobId>               # 推荐牛人 (paginated, 15/page)
+boss recruiter recommend --job <encryptJobId> -p 2          # Next page (use hasMore flag)
 
 # ─── Greet & Communicate (沟通) ──────────────────
 boss recruiter greet <encryptGeekId>                        # Initiate chat with candidate
@@ -371,8 +370,8 @@ boss -v search "Python"                # 详细日志
 ```bash
 # 搜索 & 推荐
 boss recruiter search "golang" --city 深圳 --exp 3-5年
-boss recruiter recommend --job <encryptJobId>  # 按岗位查看推荐牛人
-boss recruiter recommend -p 2                  # 翻页
+boss recruiter recommend --job <encryptJobId>     # 推荐牛人 (15/页, 真分页)
+boss recruiter recommend --job <encryptJobId> -p 2 # 翻页
 
 # 沟通
 boss recruiter greet <encryptGeekId>           # 向候选人打招呼

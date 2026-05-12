@@ -22,6 +22,7 @@ from .constants import (
     BOSS_FRIEND_LIST_URL,
     BOSS_FRIEND_NOTE_URL,
     BOSS_GREET_REC_SORT_URL,
+    BOSS_REC_GEEK_LIST_URL,
     BOSS_GREET_SORT_LIST_URL,
     BOSS_HISTORY_MSG_URL,
     BOSS_INTERVIEW_INVITE_URL,
@@ -201,6 +202,8 @@ class BossClient:
         # Recruiter (boss) endpoints
         elif url == BOSS_SEARCH_GEEK_URL:
             headers["Referer"] = f"{BASE_URL}/web/chat/search"
+        elif url == BOSS_REC_GEEK_LIST_URL:
+            headers["Referer"] = f"{BASE_URL}/web/frame/recommend/"
         elif url in (BOSS_VIEW_GEEK_URL, BOSS_SEND_MSG_URL):
             headers["Referer"] = WEB_BOSS_CHAT_URL
         elif url in (BOSS_FRIEND_LIST_URL, BOSS_FRIEND_DETAIL_URL, BOSS_LAST_MSG_URL,
@@ -553,11 +556,35 @@ class BossClient:
         return self._get(BOSS_SEARCH_GEEK_URL, params=params, action="搜索候选人")
 
     def get_boss_recommend_geeks(self, page: int = 1, enc_job_id: str = "") -> dict[str, Any]:
-        """Get recommended candidates (new greetings sorted by recommendation)."""
-        params: dict[str, Any] = {"page": page}
-        if enc_job_id:
-            params["encJobId"] = enc_job_id
-        return self._get(BOSS_GREET_REC_SORT_URL, params=params, action="推荐候选人")
+        """Get the "推荐牛人" feed — the candidate-discovery list shown on the recruiter
+        recommend page. Truly paginated (15/page), with `hasMore` flag.
+
+        This used to hit ``greetRecSortList`` (a re-sort of already-greeted candidates,
+        ~10 per job and `page` was a no-op). Now it hits the real ``/wapi/zpjob/rec/geek/list``
+        endpoint that the BOSS recruiter web page calls on infinite scroll.
+        """
+        if not enc_job_id:
+            raise ValueError("enc_job_id (encryptJobId) is required for 推荐牛人 — pass --job")
+        params: dict[str, Any] = {
+            "age": "16,-1",
+            "school": 0,
+            "activation": 0,
+            "gender": 0,
+            "recentNotView": 0,
+            "exchangeResumeWithColleague": 0,
+            "major": 0,
+            "keyword1": -1,
+            "switchJobFrequency": 0,
+            "experience": 0,
+            "degree": 0,
+            "intention": 0,
+            "salary": 0,
+            "jobId": enc_job_id,
+            "page": page,
+            "coverScreenMemory": 0,
+            "cardType": 0,
+        }
+        return self._get(BOSS_REC_GEEK_LIST_URL, params=params, action="推荐牛人")
 
     def get_boss_view_geek(
         self, encrypt_geek_id: str, encrypt_job_id: str, security_id: str = "",

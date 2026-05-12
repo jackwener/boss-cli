@@ -137,56 +137,69 @@ def recruiter_search(
 
 @recruiter.command("recommend")
 @click.option("-n", "--limit", "display_limit", default=0, type=int, help="显示数量 (0=全部)")
-@click.option("-p", "--page", default=1, type=int, help="页码 (默认: 1)")
-@click.option("--job", "enc_job_id", default="", help="关联职位 encryptJobId (切换岗位)")
+@click.option("-p", "--page", default=1, type=int, help="页码 (默认: 1, 真分页, 15/页)")
+@click.option("--job", "enc_job_id", required=True, help="目标职位 encryptJobId (必填)")
 @structured_output_options
 def recruiter_recommend(
     display_limit: int, page: int, enc_job_id: str,
     as_json: bool, as_yaml: bool,
 ) -> None:
-    """推荐候选人列表 (支持 --job 切换岗位, -p 翻页)"""
+    """推荐牛人 (候选人发现池) — 真分页, 每页 15 人, 有 hasMore 标志。
+
+    与 BOSS 直聘网页端 "推荐牛人" 一致, 支持滚动翻页继续拉取候选人。
+    """
     cred = require_auth()
 
     def _action(c: BossClient) -> dict:
         return c.get_boss_recommend_geeks(page=page, enc_job_id=enc_job_id)
 
     def _render(data: dict) -> None:
-        friend_list = data.get("friendList", [])
-        total = len(friend_list)
+        geek_list = data.get("geekList", [])
+        has_more = data.get("hasMore", False)
+        total = len(geek_list)
 
-        if not friend_list:
-            console.print("[yellow]暂无推荐候选人[/yellow]")
+        if not geek_list:
+            console.print("[yellow]暂无推荐候选人 (该岗位推荐池可能已耗尽, 或换岗位试试)[/yellow]")
             return
 
         if display_limit > 0:
-            friend_list = friend_list[:display_limit]
+            geek_list = geek_list[:display_limit]
 
+        more_hint = " · 有更多 (翻页 -p)" if has_more else " · 已到末页"
         table = Table(
-            title=f"推荐候选人 (显示 {len(friend_list)}/{total} 人)",
+            title=f"推荐牛人 第 {page} 页 (显示 {len(geek_list)}/{total} 人){more_hint}",
             show_lines=True,
         )
         table.add_column("#", style="dim", width=3)
         table.add_column("姓名", style="bold cyan", max_width=10)
-        table.add_column("职位", style="green", max_width=20)
-        table.add_column("encJobId", style="dim", max_width=28)
-        table.add_column("新牛人", max_width=4)
-        table.add_column("时间", style="dim", max_width=10)
+        table.add_column("年龄", max_width=5)
+        table.add_column("经验", max_width=10)
+        table.add_column("学历", max_width=6)
+        table.add_column("城市", style="green", max_width=10)
+        table.add_column("期望薪资", max_width=10)
+        table.add_column("活跃", style="dim", max_width=10)
+        table.add_column("encryptGeekId", style="dim", max_width=30)
 
-        for i, f in enumerate(friend_list, 1):
-            new_flag = "NEW" if f.get("newGeek") else ""
+        for i, g in enumerate(geek_list, 1):
+            card = g.get("geekCard", {}) if isinstance(g.get("geekCard"), dict) else g
             table.add_row(
                 str(i),
-                f.get("name", "-"),
-                f.get("jobName", "-"),
-                f.get("encryptJobId", "-"),
-                new_flag,
-                f.get("lastTime", "-"),
+                card.get("geekName", "-"),
+                str(card.get("ageDesc", "-")),
+                str(card.get("workExpDesc") or card.get("geekWorkYear") or "-"),
+                str(card.get("degreeCategory") or card.get("geekDegree") or "-"),
+                str(card.get("cityName") or card.get("expectLocationName") or "-"),
+                str(card.get("salary") or card.get("salaryDesc") or "-"),
+                str(card.get("activeTimeDesc") or card.get("actionDateDesc") or "-"),
+                card.get("encryptGeekId") or g.get("encryptGeekId", "-"),
             )
 
         console.print(table)
 
-        console.print("  [dim]💡 切换岗位: boss recruiter recommend --job <encryptJobId>[/dim]")
-        console.print("  [dim]   限制显示: boss recruiter recommend -n 10[/dim]")
+        next_page = page + 1
+        if has_more:
+            console.print(f"  [dim]→ 下一页: boss recruiter recommend --job {enc_job_id} -p {next_page}[/dim]")
+        console.print(f"  [dim]   导出: boss recruiter recommend --job {enc_job_id} -p {page} --json[/dim]")
         console.print("  [dim]   查看职位: boss recruiter jobs[/dim]")
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
