@@ -68,6 +68,8 @@ uv sync
 boss login                             # Auto-detect browser cookies, fallback to QR
 boss login --cookie-source chrome      # Extract from specific browser
 boss login --qrcode                    # QR code login only
+boss login --cookies -                 # Paste cookies via stdin (Cookie-Editor JSON or "k=v; k=v")
+boss login --cookies cookies.json      # Load cookies from a file (headless servers)
 boss status                            # Check login status (validates real search session, shows cookie names)
 boss logout                            # Clear saved cookies
 
@@ -208,8 +210,22 @@ boss-cli supports multiple authentication methods:
 1. **Saved cookies** — loads from `~/.config/boss-cli/credential.json`
 2. **Browser cookies** — auto-detects installed browsers (Chrome, Firefox, Edge, Brave, Arc, Chromium, Opera, Vivaldi, Safari, LibreWolf)
 3. **QR code login** — terminal QR output using Unicode half-blocks, scan with Boss 直聘 APP
+4. **Pasted cookies** — `boss login --cookies` / `BOSS_COOKIES` for headless servers where the browser lives on another machine
 
 `boss login` auto-extracts browser cookies first, falls back to QR login. Use `--cookie-source chrome` to specify a browser, or `--qrcode` to skip browser detection. The command now verifies the saved credential against a real authenticated API before reporting success.
+
+**Headless / remote servers.** When boss-cli runs on a box with no browser (and QR login is blocked), log in from a normal browser on your own machine, export the `zhipin.com` cookies, and paste them in:
+
+```bash
+# Easiest: install the "Cookie-Editor" extension, log into zhipin.com,
+# click Export (JSON), then paste:
+boss login --cookies -        # paste the JSON, then Ctrl-D
+boss login --cookies          # opens $EDITOR to paste into
+boss login --cookies dump.json
+export BOSS_COOKIES='wt2=...; wbg=0; zp_at=...; __zp_stoken__=...'  # or a header string
+```
+
+`--cookies` and `BOSS_COOKIES` accept a Cookie-Editor / EditThisCookie JSON export, a plain `{"name": "value"}` object, or a `"key1=val1; key2=val2"` Cookie header string. The export must include the HttpOnly cookies `__zp_stoken__` and `zp_at` (a browser's `document.cookie` omits them — use the extension or the DevTools request `Cookie` header instead).
 
 `boss recommend` follows the live web app's current recommendation data source and request context, which improves compatibility when the legacy recommendation endpoint is rejected.
 
@@ -303,6 +319,10 @@ uv run ruff check .
 
 Your session cookies have expired. Run `boss logout && boss login` to refresh. If QR login only returns a partial cookie set, log in from a browser first and then run `boss login`.
 
+**Q: Running on a headless server — no browser to extract from, and QR login does nothing / DevTools is blocked**
+
+Log in from a browser on your own machine, then bring the cookies over. The simplest path is the **Cookie-Editor** extension (it can read HttpOnly cookies and needs no DevTools, so site anti-debugging can't block it): log into `zhipin.com`, click *Export* (JSON), then on the server run `boss login --cookies -` and paste, or `boss login --cookies dump.json`. See the **Authentication → Headless / remote servers** section for details.
+
 **Q: `暂无投递记录` but I have applied**
 
 Some features require fresh `__zp_stoken__`. Try re-logging in from a browser, then `boss login`.
@@ -335,6 +355,8 @@ Check your city filter. Some keywords are city-specific. Use `boss cities` to se
 # 认证
 boss login                             # 自动提取浏览器 Cookie，失败则二维码
 boss login --cookie-source chrome      # 指定浏览器
+boss login --cookies -                 # 粘贴 Cookie 登录（Cookie-Editor JSON 或 "k=v; k=v"），适合无头服务器
+boss login --cookies cookies.json      # 从文件读取 Cookie 登录
 boss status                            # 检查登录状态
 boss logout                            # 清除 Cookie
 

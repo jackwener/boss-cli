@@ -200,16 +200,45 @@ def _diagnose_extraction_issues(diagnostics: list[str]) -> str | None:
 
 # ── Environment variable fallback ───────────────────────────────────
 
-def load_from_env() -> Credential | None:
-    """Load cookies from BOSS_COOKIES environment variable.
+def parse_cookie_blob(raw: str) -> dict[str, str]:
+    """Parse cookies from a pasted blob into a ``{name: value}`` mapping.
 
-    Format: "key1=val1; key2=val2; ..."
+    Accepts three shapes so users can paste whatever their browser hands them:
+
+    * Cookie-Editor / EditThisCookie JSON export — ``{"url": ..., "cookies":
+      [{"name": ..., "value": ...}, ...]}`` or a bare ``[{"name", "value"}]``
+      array.
+    * A plain ``{"name": "value", ...}`` JSON object.
+    * A ``"key1=val1; key2=val2"`` Cookie request-header string.
+
+    Unknown / malformed input yields an empty mapping rather than raising.
     """
-    raw = os.environ.get("BOSS_COOKIES", "").strip()
+    raw = raw.strip()
     if not raw:
-        return None
-    cookies: dict[str, str] = {}
-    for part in raw.split(";"):
+        return {}
+
+    if raw[0] in "[{":
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return {}
+        if isinstance(data, dict):
+            # Cookie-Editor export wraps the list under "cookies".
+            if isinstance(data.get("cookies"), list):
+                items: Any = data["cookies"]
+            else:
+                # Plain {name: value} object.
+                return {str(k): str(v) for k, v in data.items() if k and v is not None}
+        else:
+            items = data
+        cookies: dict[str, str] = {}
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict) and item.get("name"):
+                cookies[str(item["name"])] = str(item.get("value", ""))
+        return cookies
+
+    cookies = {}
+    for part in raw.replace("\n", ";").split(";"):
         part = part.strip()
         if "=" not in part:
             continue
@@ -217,8 +246,32 @@ def load_from_env() -> Credential | None:
         k, v = k.strip(), v.strip()
         if k and v:
             cookies[k] = v
+    return cookies
+
+
+def credential_from_cookie_blob(raw: str) -> Credential:
+    """Build a :class:`Credential` from a pasted cookie blob.
+
+    See :func:`parse_cookie_blob` for accepted formats. The returned credential
+    may be empty or missing required cookies; callers should check before
+    trusting it.
+    """
+    return Credential(cookies=parse_cookie_blob(raw))
+
+
+def load_from_env() -> Credential | None:
+    """Load cookies from the BOSS_COOKIES environment variable.
+
+    Accepts the same formats as :func:`parse_cookie_blob`: a Cookie-Editor JSON
+    export, a ``{name: value}`` JSON object, or a ``"key1=val1; key2=val2"``
+    Cookie header string.
+    """
+    raw = os.environ.get("BOSS_COOKIES", "").strip()
+    if not raw:
+        return None
+    cookies = parse_cookie_blob(raw)
     if not cookies:
-        logger.debug("BOSS_COOKIES env set but no valid key=value pairs found")
+        logger.debug("BOSS_COOKIES env set but no cookies could be parsed")
         return None
     cred = Credential(cookies=cookies)
     logger.info("Loaded %d cookies from BOSS_COOKIES environment variable", len(cookies))

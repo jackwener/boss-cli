@@ -81,11 +81,59 @@ class TestCommandHelp:
         result = runner.invoke(cli, ["login", "--help"])
         assert "--cookie-source" in result.output
         assert "--qrcode" in result.output
+        assert "--cookies" in result.output
 
     def test_history_has_options(self):
         result = runner.invoke(cli, ["history", "--help"])
         assert "--page" in result.output or "-p" in result.output
         assert "--json" in result.output
+
+
+# ── login --cookies (mocked) ────────────────────────────────────────
+
+
+class TestLoginWithCookies:
+    """Test `boss login --cookies` paste-cookie login."""
+
+    _FULL = (
+        '{"cookies":[{"name":"wt2","value":"a"},{"name":"wbg","value":"0"},'
+        '{"name":"zp_at","value":"b"},{"name":"__zp_stoken__","value":"c"}]}'
+    )
+
+    def test_cookies_success(self):
+        with patch("boss_cli.auth.save_credential") as save, \
+             patch("boss_cli.auth.verify_credential", return_value=(True, None)):
+            result = runner.invoke(cli, ["login", "--cookies", self._FULL])
+        assert result.exit_code == 0
+        assert "登录成功" in result.output
+        save.assert_called_once()
+
+    def test_cookies_from_stdin(self):
+        blob = "wt2=a; wbg=0; zp_at=b; __zp_stoken__=c"
+        with patch("boss_cli.auth.save_credential"), \
+             patch("boss_cli.auth.verify_credential", return_value=(True, None)):
+            result = runner.invoke(cli, ["login", "--cookies", "-"], input=blob)
+        assert result.exit_code == 0
+        assert "登录成功" in result.output
+
+    def test_cookies_missing_required(self):
+        result = runner.invoke(cli, ["login", "--cookies", "a=1; b=2"])
+        assert result.exit_code == 1
+        assert "缺少关键 Cookie" in result.output
+
+    def test_cookies_unparseable(self):
+        result = runner.invoke(cli, ["login", "--cookies", "garbage-without-equals"])
+        assert result.exit_code == 1
+        assert "无法解析" in result.output
+
+    def test_cookies_verification_failure_clears(self):
+        with patch("boss_cli.auth.save_credential"), \
+             patch("boss_cli.auth.clear_credential") as clear, \
+             patch("boss_cli.auth.verify_credential", return_value=(False, "环境异常")):
+            result = runner.invoke(cli, ["login", "--cookies", self._FULL])
+        assert result.exit_code == 1
+        assert "未通过实际接口校验" in result.output
+        clear.assert_called_once()
 
 
 # ── Auth commands (mocked) ──────────────────────────────────────────

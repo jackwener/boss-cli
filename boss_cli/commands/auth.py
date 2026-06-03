@@ -18,11 +18,53 @@ from ._common import (
 logger = logging.getLogger(__name__)
 
 
+def _read_cookie_input(src: str) -> str:
+    """Resolve the --cookies value into a raw cookie blob.
+
+    ``"@editor"`` (the flag's no-value sentinel) opens $EDITOR; ``"-"`` reads
+    stdin; an existing path is read as a file; anything else is treated as the
+    pasted blob itself.
+    """
+    import os
+
+    if src == "@editor":
+        text = click.edit(
+            "\n# 在此粘贴 Cookie-Editor 导出的 JSON 或浏览器的 Cookie 串，"
+            "保存并退出。以 # 开头的行会被忽略。\n"
+        )
+        if not text:
+            return ""
+        return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    if src == "-":
+        return click.get_text_stream("stdin").read()
+    if os.path.exists(src):
+        with open(src, encoding="utf-8") as f:
+            return f.read()
+    return src
+
+
 @click.command()
 @click.option("--qrcode", is_flag=True, help="使用二维码扫码登录")
 @click.option("--cookie-source", default=None, help="指定浏览器 (chrome/firefox/edge/brave/arc/safari等)")
-def login(qrcode: bool, cookie_source: str | None) -> None:
-    """扫码登录 Boss 直聘 APP"""
+@click.option(
+    "--cookies",
+    "cookies_src",
+    is_flag=False,
+    flag_value="@editor",
+    default=None,
+    metavar="[BLOB|FILE|-]",
+    help=(
+        "用浏览器导出的 Cookie 登录。值可为 Cookie-Editor JSON / Cookie 串、"
+        "JSON 文件路径，或 '-' 从标准输入读取；不带值则打开编辑器粘贴。"
+        "适用于无头服务器等无法自动抓取 Cookie 的环境。"
+    ),
+)
+def login(qrcode: bool, cookie_source: str | None, cookies_src: str | None) -> None:
+    """扫码登录 Boss 直聘 APP
+
+    无参数时自动提取浏览器 Cookie，失败则回退二维码登录。
+    无头服务器可用 --cookies 粘贴浏览器导出的 Cookie 直接登录。
+    """
     from ..auth import clear_credential, verify_credential
 
     def _finalize_login(cred, *, from_qr: bool = False) -> None:
@@ -54,6 +96,29 @@ def login(qrcode: bool, cookie_source: str | None) -> None:
                 "   2. 或使用 boss login --qrcode 扫码登录[/yellow]"
             )
         raise SystemExit(1)
+
+    if cookies_src is not None:
+        from ..auth import credential_from_cookie_blob, save_credential
+
+        raw = _read_cookie_input(cookies_src)
+        if not raw.strip():
+            console.print("[red]❌ 未读取到任何 Cookie 内容[/red]")
+            raise SystemExit(1)
+        cred = credential_from_cookie_blob(raw)
+        if not cred.cookies:
+            console.print("[red]❌ 无法解析 Cookie（支持 Cookie-Editor JSON 或 'k=v; k=v' 串）[/red]")
+            raise SystemExit(1)
+        missing = cred.missing_required_cookies
+        if missing:
+            console.print(f"[red]❌ 缺少关键 Cookie: {', '.join(missing)}[/red]")
+            console.print(
+                "[dim]请从已登录的 zhipin.com 导出，并确保包含 HttpOnly Cookie"
+                "（如 __zp_stoken__、zp_at）。推荐用 Cookie-Editor 扩展导出 JSON。[/dim]"
+            )
+            raise SystemExit(1)
+        save_credential(cred)
+        _finalize_login(cred)
+        return
 
     if qrcode:
         # Prefer browser-assisted login (captures __zp_stoken__ via JS)

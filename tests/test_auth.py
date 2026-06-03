@@ -119,6 +119,74 @@ class TestLoadFromEnv:
         with patch.dict(os.environ, {"BOSS_COOKIES": "no-equals-here; also-bad"}):
             assert load_from_env() is None
 
+    def test_load_from_env_json_export(self):
+        """BOSS_COOKIES also accepts a Cookie-Editor JSON export."""
+        from boss_cli.auth import load_from_env
+
+        blob = '{"url":"https://www.zhipin.com","cookies":[{"name":"wt2","value":"abc"},{"name":"zp_at","value":"ghi"}]}'
+        with patch.dict(os.environ, {"BOSS_COOKIES": blob}):
+            cred = load_from_env()
+
+        assert cred is not None
+        assert cred.cookies == {"wt2": "abc", "zp_at": "ghi"}
+
+
+# ── Cookie blob parsing ─────────────────────────────────────────────
+
+
+class TestParseCookieBlob:
+    """Test parse_cookie_blob across the formats users paste."""
+
+    def test_cookie_editor_export(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        blob = (
+            '{"url":"https://www.zhipin.com","cookies":'
+            '[{"name":"wt2","value":"abc","httpOnly":true},'
+            '{"name":"__zp_stoken__","value":"tok%2F123"}]}'
+        )
+        assert parse_cookie_blob(blob) == {"wt2": "abc", "__zp_stoken__": "tok%2F123"}
+
+    def test_bare_array(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        blob = '[{"name":"a","value":"1"},{"name":"b","value":"2"}]'
+        assert parse_cookie_blob(blob) == {"a": "1", "b": "2"}
+
+    def test_plain_object(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        assert parse_cookie_blob('{"a":"1","b":"2"}') == {"a": "1", "b": "2"}
+
+    def test_header_string(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        assert parse_cookie_blob("a=1; b=2;  c=3 ") == {"a": "1", "b": "2", "c": "3"}
+
+    def test_header_string_with_equals_in_value(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        # zp_at / __zp_stoken__ values can contain '=' and '~'
+        assert parse_cookie_blob("zp_at=eSm=Wd~~; wbg=0") == {"zp_at": "eSm=Wd~~", "wbg": "0"}
+
+    def test_empty_and_malformed(self):
+        from boss_cli.auth import parse_cookie_blob
+
+        assert parse_cookie_blob("") == {}
+        assert parse_cookie_blob("   ") == {}
+        assert parse_cookie_blob("no-equals-here; also-bad") == {}
+        assert parse_cookie_blob("{not valid json") == {}
+
+    def test_credential_from_blob_requires_cookies(self):
+        from boss_cli.auth import credential_from_cookie_blob
+
+        cred = credential_from_cookie_blob(
+            '{"cookies":[{"name":"wt2","value":"a"},{"name":"wbg","value":"0"},'
+            '{"name":"zp_at","value":"b"},{"name":"__zp_stoken__","value":"c"}]}'
+        )
+        assert cred.has_required_cookies
+        assert cred.cookies["wt2"] == "a"
+
 
 # ── Cookie jar extraction ───────────────────────────────────────────
 
