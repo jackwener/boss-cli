@@ -211,6 +211,25 @@ boss-cli supports multiple authentication methods:
 
 `boss login` auto-extracts browser cookies first, falls back to QR login. Use `--cookie-source chrome` to specify a browser, or `--qrcode` to skip browser detection. The command now verifies the saved credential against a real authenticated API before reporting success.
 
+#### Chromium 127+ on Windows (App-Bound Encryption)
+
+New Chrome/Edge versions may prevent `browser-cookie3` from decrypting the on-disk Cookie database. As a safe workaround, let the browser return its own cookies over an explicitly enabled loopback CDP endpoint:
+
+```powershell
+# Use a separate browser profile for CDP.
+& "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
+  --remote-debugging-port=9222 `
+  --user-data-dir="$env:USERPROFILE\.boss-cli-edge"
+
+# Log in to zhipin.com in that window, then:
+$env:BOSS_CDP_URL = "http://127.0.0.1:9222"
+boss login
+boss status
+Remove-Item Env:BOSS_CDP_URL
+```
+
+The CLI tries CDP first when `BOSS_CDP_URL` is set and no `--cookie-source` is specified. Both the HTTP and WebSocket addresses must be loopback addresses; proxies and redirects are disabled. CDP lets the browser decrypt its own cookies. If CDP fails, the usual browser-cookie3 and QR login fallbacks still apply. Close the debugging browser after login. The separate profile persists at the path above; delete it when no longer needed.
+
 `boss recommend` follows the live web app's current recommendation data source and request context, which improves compatibility when the legacy recommendation endpoint is rejected.
 
 `boss status --json` now reports per-flow health such as `search_authenticated` and `recommend_authenticated`, which helps diagnose partial-session issues. To avoid turning repeated checks into their own anti-bot problem, health snapshots are cached briefly in-memory.

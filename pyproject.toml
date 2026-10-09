@@ -19,6 +19,7 @@ dependencies = [
     "rich>=13.0",
     "httpx>=0.27",
     "browser-cookie3>=0.19",
+    "websocket-client>=1.8",
     "qrcode>=7.0",
 ]
 
