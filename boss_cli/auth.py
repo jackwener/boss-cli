@@ -19,7 +19,13 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from typing import Any
+
+try:
+    import websocket
+except ImportError:  # optional CDP fallback
+    websocket = None
 
 import httpx
 import qrcode
@@ -545,6 +551,53 @@ print(json.dumps({"error": "no_cookies", "attempts": attempts}))
         return None, diagnostics
 
 
+def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, list[str]]:
+    """Read cookies through a user-owned Chromium CDP endpoint.
+
+    Chromium performs App-Bound decryption inside the browser; this avoids
+    reading or decrypting the on-disk Cookies database. The endpoint must be
+    explicitly provided via BOSS_CDP_URL (for example http://127.0.0.1:9222).
+    """
+    diagnostics: list[str] = []
+    endpoint = (endpoint or os.environ.get("BOSS_CDP_URL", "")).strip().rstrip("/")
+    if not endpoint:
+        return None, diagnostics
+    if websocket is None:
+        diagnostics.append("cdp: websocket-client is not installed")
+        return None, diagnostics
+    try:
+        with urllib.request.urlopen(f"{endpoint}/json/list", timeout=3) as response:
+            targets = json.loads(response.read().decode("utf-8"))
+        target = next((item for item in targets if item.get("type") == "page" and "zhipin.com" in item.get("url", "")), None)
+        target = target or next((item for item in targets if item.get("type") == "page"), None)
+        ws_url = target.get("webSocketDebuggerUrl") if target else None
+        if not ws_url:
+            diagnostics.append("cdp: /json/list did not return a page target")
+            return None, diagnostics
+        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
+            while True:
+                message = json.loads(ws.recv())
+                if message.get("id") == 1:
+                    result = message.get("result", {})
+                    break
+        finally:
+            ws.close()
+        cookies = {item["name"]: item["value"] for item in result.get("cookies", []) if "zhipin.com" in item.get("domain", "") and item.get("value")}
+        cred = Credential(cookies=cookies) if cookies else None
+        if cred and cred.has_required_cookies:
+            save_credential(cred)
+            return cred, diagnostics
+        if cred:
+            diagnostics.append("cdp: zhipin.com cookies missing required keys: " + ", ".join(cred.missing_required_cookies))
+        else:
+            diagnostics.append("cdp: no zhipin.com cookies found")
+    except Exception as exc:
+        diagnostics.append(f"cdp: {type(exc).__name__}: {exc}")
+    return None, diagnostics
+
+
 def extract_browser_credential(cookie_source: str | None = None) -> tuple[Credential | None, list[str]]:
     """Extract Boss Zhipin cookies from local browsers.
 
@@ -560,6 +613,13 @@ def extract_browser_credential(cookie_source: str | None = None) -> tuple[Creden
         (Credential | None, diagnostics_list)
     """
     all_diagnostics: list[str] = []
+
+    # Chromium 127+ App-Bound Encryption is inaccessible to browser-cookie3.
+    # When explicitly configured, ask the running browser for its own cookies.
+    cred, diag = _extract_via_cdp()
+    all_diagnostics.extend(diag)
+    if cred:
+        return cred, all_diagnostics
 
     # 1. In-process (works on macOS, may fail with SQLite lock)
     cred, diag = _extract_in_process(cookie_source)
