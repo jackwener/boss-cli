@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 
 try:
@@ -551,40 +552,69 @@ print(json.dumps({"error": "no_cookies", "attempts": attempts}))
         return None, diagnostics
 
 
-def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, list[str]]:
-    """Read cookies through a user-owned Chromium CDP endpoint.
+def _loopback_cdp_url(url: str, schemes: tuple[str, ...]) -> str:
+    """Validate CDP URLs and pin localhost to a loopback IP before connecting."""
+    parsed = urlsplit(url)
+    host = parsed.hostname
+    if parsed.scheme not in schemes or not host or parsed.username is not None or parsed.password is not None:
+        raise ValueError("CDP requires a loopback URL without credentials")
+    host = "127.0.0.1" if host == "localhost" else host
+    if not ipaddress.ip_address(host).is_loopback:
+        raise ValueError("CDP requires a loopback address")
+    if parsed.query or parsed.fragment:
+        raise ValueError("CDP URLs must not contain a query or fragment")
+    authority = f"[{host}]" if ":" in host else host
+    if parsed.port is not None:
+        authority += f":{parsed.port}"
+    return urlunsplit((parsed.scheme, authority, parsed.path, "", ""))
 
-    Chromium performs App-Bound decryption inside the browser; this avoids
-    reading or decrypting the on-disk Cookies database. The endpoint must be
-    explicitly provided via BOSS_CDP_URL (for example http://127.0.0.1:9222).
-    """
+
+def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, list[str]]:
+    """Read cookies through an explicitly configured, loopback Chromium CDP endpoint."""
     diagnostics: list[str] = []
-    endpoint = (endpoint or os.environ.get("BOSS_CDP_URL", "")).strip().rstrip("/")
+    endpoint = (endpoint if endpoint is not None else os.environ.get("BOSS_CDP_URL", "")).strip().rstrip("/")
     if not endpoint:
         return None, diagnostics
     if websocket is None:
-        diagnostics.append("cdp: websocket-client is not installed")
-        return None, diagnostics
+        return None, ["cdp: websocket-client is not installed"]
     try:
-        with urllib.request.urlopen(f"{endpoint}/json/list", timeout=3) as response:
-            targets = json.loads(response.read().decode("utf-8"))
-        target = next((item for item in targets if item.get("type") == "page" and "zhipin.com" in item.get("url", "")), None)
-        target = target or next((item for item in targets if item.get("type") == "page"), None)
+        endpoint = _loopback_cdp_url(endpoint, ("http", "https"))
+        # Do not send local browser traffic through environment proxies or redirects.
+        with httpx.Client(trust_env=False, follow_redirects=False, timeout=3) as client:
+            response = client.get(f"{endpoint}/json/list")
+            response.raise_for_status()
+            targets = response.json()
+        pages = [item for item in targets if item.get("type") == "page"]
+        target = next((item for item in pages if urlsplit(item.get("url", "")).hostname == "www.zhipin.com"), None)
+        target = target or next(iter(pages), None)
         ws_url = target.get("webSocketDebuggerUrl") if target else None
         if not ws_url:
-            diagnostics.append("cdp: /json/list did not return a page target")
-            return None, diagnostics
-        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
+            return None, ["cdp: /json/list did not return a page target"]
+        ws_url = _loopback_cdp_url(ws_url, ("ws", "wss"))
+        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True, http_no_proxy=["*"], redirect_limit=0)
         try:
+            if ws.getstatus() != 101:
+                raise ValueError("CDP WebSocket upgrade failed")
             ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
+            deadline = time.monotonic() + 5
             while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("CDP cookie response timed out")
+                ws.settimeout(remaining)
                 message = json.loads(ws.recv())
                 if message.get("id") == 1:
-                    result = message.get("result", {})
+                    if "error" in message:
+                        raise RuntimeError("CDP Network.getAllCookies failed")
+                    result = message["result"]
                     break
         finally:
             ws.close()
-        cookies = {item["name"]: item["value"] for item in result.get("cookies", []) if "zhipin.com" in item.get("domain", "") and item.get("value")}
+        cookies = {}
+        for item in result.get("cookies", []):
+            domain = item.get("domain", "").lstrip(".").lower()
+            if (domain == "zhipin.com" or domain.endswith(".zhipin.com")) and item.get("name") and item.get("value"):
+                cookies[item["name"]] = item["value"]
         cred = Credential(cookies=cookies) if cookies else None
         if cred and cred.has_required_cookies:
             save_credential(cred)
@@ -594,7 +624,8 @@ def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, li
         else:
             diagnostics.append("cdp: no zhipin.com cookies found")
     except Exception as exc:
-        diagnostics.append(f"cdp: {type(exc).__name__}: {exc}")
+        # Endpoint errors can contain URLs or response bodies; do not expose them.
+        diagnostics.append(f"cdp: {type(exc).__name__} while importing browser cookies")
     return None, diagnostics
 
 
@@ -616,10 +647,11 @@ def extract_browser_credential(cookie_source: str | None = None) -> tuple[Creden
 
     # Chromium 127+ App-Bound Encryption is inaccessible to browser-cookie3.
     # When explicitly configured, ask the running browser for its own cookies.
-    cred, diag = _extract_via_cdp()
-    all_diagnostics.extend(diag)
-    if cred:
-        return cred, all_diagnostics
+    if cookie_source is None:
+        cred, diag = _extract_via_cdp()
+        all_diagnostics.extend(diag)
+        if cred:
+            return cred, all_diagnostics
 
     # 1. In-process (works on macOS, may fail with SQLite lock)
     cred, diag = _extract_in_process(cookie_source)

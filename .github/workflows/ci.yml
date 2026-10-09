@@ -31,4 +31,4 @@ jobs:
         run: uv run ruff check .
 
       - name: Test
-        run: uv run pytest tests/test_cli.py -v
+        run: uv run pytest tests/test_cli.py tests/test_auth.py tests/test_cdp_auth.py -v

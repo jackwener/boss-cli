@@ -216,8 +216,8 @@ boss-cli supports multiple authentication methods:
 New Chrome/Edge versions may prevent `browser-cookie3` from decrypting the on-disk Cookie database. As a safe workaround, let the browser return its own cookies over an explicitly enabled loopback CDP endpoint:
 
 ```powershell
-# Close the normal browser first; use a separate temporary profile.
-& "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe" `
+# Use a separate browser profile for CDP.
+& "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
   --remote-debugging-port=9222 `
   --user-data-dir="$env:USERPROFILE\.boss-cli-edge"
 
@@ -225,9 +225,10 @@ New Chrome/Edge versions may prevent `browser-cookie3` from decrypting the on-di
 $env:BOSS_CDP_URL = "http://127.0.0.1:9222"
 boss login
 boss status
+Remove-Item Env:BOSS_CDP_URL
 ```
 
-The CLI uses CDP only when `BOSS_CDP_URL` is set; it does not read or decrypt the browser Cookie database. Close the temporary browser and remove the environment variable after login.
+The CLI tries CDP first when `BOSS_CDP_URL` is set and no `--cookie-source` is specified. Both the HTTP and WebSocket addresses must be loopback addresses; proxies and redirects are disabled. CDP lets the browser decrypt its own cookies. If CDP fails, the usual browser-cookie3 and QR login fallbacks still apply. Close the debugging browser after login. The separate profile persists at the path above; delete it when no longer needed.
 
 `boss recommend` follows the live web app's current recommendation data source and request context, which improves compatibility when the legacy recommendation endpoint is rejected.
 
