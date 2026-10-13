@@ -21,6 +21,7 @@ dependencies = [
     "browser-cookie3>=0.19",
     "websocket-client>=1.8",
     "qrcode>=7.0",
+    "paho-mqtt>=1.6,<3.0",
 ]
 
 [project.optional-dependencies]

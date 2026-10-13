@@ -5,6 +5,8 @@ Usage:
     boss search <keyword> [--city C] [--salary S] [--exp E] [--degree D]
     boss recommend [--page N]
     boss me / applied / interviews / chat
+    boss messages [-n N]
+    boss chat-history <friendId> [-n N]
     boss greet <securityId>
     boss batch-greet <keyword> [-n N] [--city C] [--dry-run]
     boss cities
@@ -60,6 +62,14 @@ cli.add_command(personal.interviews)
 cli.add_command(social.chat_list)
 cli.add_command(social.greet)
 cli.add_command(social.batch_greet)
+cli.add_command(social.messages)
+cli.add_command(social.chat_history)
+cli.add_command(social.unread_messages)
+cli.add_command(social.geek_reply)
+cli.add_command(social.send_resume)
+cli.add_command(social.request_phone)
+cli.add_command(social.request_wechat)
+cli.add_command(social.accept_exchange)
 
 # ─── Recruiter (Boss) commands ──────────────────────────────────────
 

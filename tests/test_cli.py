@@ -36,6 +36,8 @@ class TestCliBasic:
             "search", "recommend", "cities", "detail", "show", "export", "history",
             "applied", "interviews",
             "chat", "greet", "batch-greet",
+            "messages", "unread", "reply", "chat-history",
+            "send-resume", "request-phone", "request-wechat", "accept",
         ]
         for cmd in expected:
             assert cmd in result.output, f"Command '{cmd}' not found in CLI help"
@@ -49,6 +51,8 @@ class TestCommandHelp:
         "search", "recommend", "cities", "detail", "show", "export", "history",
         "applied", "interviews",
         "chat", "greet", "batch-greet",
+        "messages", "unread", "reply", "chat-history", "accept",
+        "send-resume", "request-phone", "request-wechat",
     ])
     def test_help(self, cmd: str):
         result = runner.invoke(cli, [cmd, "--help"])
@@ -85,6 +89,11 @@ class TestCommandHelp:
     def test_history_has_options(self):
         result = runner.invoke(cli, ["history", "--help"])
         assert "--page" in result.output or "-p" in result.output
+        assert "--json" in result.output
+
+    def test_chat_history_has_options(self):
+        result = runner.invoke(cli, ["chat-history", "--help"])
+        assert "-n" in result.output or "--count" in result.output
         assert "--json" in result.output
 
 
@@ -951,3 +960,289 @@ class TestCommandFailures:
             assert result.exit_code == 0
             assert "1/1" in result.output
             clear_credential.assert_not_called()
+
+
+# ── Geek Chat commands (mocked) ─────────────────────────────────────
+
+
+def _mock_cred():
+    cred = MagicMock()
+    cred.cookies = {"__zp_stoken__": "s", "wt2": "tok", "wbg": "2", "zp_at": "3"}
+    return cred
+
+
+def _mock_client_ctx(client_mock):
+    """Return a context manager that yields the mock client."""
+    ctx = MagicMock()
+    ctx.__enter__ = MagicMock(return_value=client_mock)
+    ctx.__exit__ = MagicMock(return_value=False)
+    return ctx
+
+
+class TestMessagesCommand:
+    """Tests for `boss messages`."""
+
+    def test_help(self):
+        result = runner.invoke(cli, ["messages", "--help"])
+        assert result.exit_code == 0
+        assert "-n" in result.output or "--count" in result.output
+
+    def test_messages_no_auth(self):
+        with patch("boss_cli.commands._common.get_credential", return_value=None):
+            result = runner.invoke(cli, ["messages", "--json"])
+            assert result.exit_code != 0 or "not_authenticated" in result.output
+
+    def test_messages_empty(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_friend_list.return_value = {"friendList": []}
+        client.get_user_info.return_value = {"userId": 123}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["messages", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            assert data["data"]["friends"] == []
+
+    def test_messages_with_friends(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_friend_list.return_value = {"friendList": [
+            {"friendId": 111, "name": "张老板", "brandName": "ACME", "jobName": "Python工程师",
+             "encryptFriendId": "enc111"},
+        ]}
+        client.get_user_info.return_value = {"userId": 999}
+        client.get_geek_last_messages.return_value = [{
+            "uid": 999,
+            "lastTime": "10:00",
+            "lastTS": 1000000,
+            "lastMsgInfo": {"msgId": 1, "showText": "你好", "fromId": 111, "toId": 999,
+                            "status": 0, "msgTime": 1000000},
+        }]
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["messages", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            assert len(data["data"]["friends"]) == 1
+            assert len(data["data"]["messages"]) == 1
+
+
+class TestUnreadCommand:
+    """Tests for `boss unread`."""
+
+    def test_help(self):
+        result = runner.invoke(cli, ["unread", "--help"])
+        assert result.exit_code == 0
+
+    def test_unread_no_auth(self):
+        with patch("boss_cli.commands._common.get_credential", return_value=None):
+            result = runner.invoke(cli, ["unread", "--json"])
+            assert result.exit_code != 0 or "not_authenticated" in result.output
+
+    def test_unread_filters_self_messages(self):
+        """Messages sent by me (fromId == my_uid) should not appear in unread."""
+        cred = _mock_cred()
+        client = MagicMock()
+        my_uid = 999
+        client.get_geek_friend_list.return_value = {"friendList": [
+            {"friendId": 111, "name": "张老板", "brandName": "ACME", "jobName": "工程师",
+             "encryptFriendId": "enc111"},
+            {"friendId": 222, "name": "李老板", "brandName": "XYZ", "jobName": "开发",
+             "encryptFriendId": "enc222"},
+        ]}
+        client.get_user_info.return_value = {"userId": my_uid}
+        client.get_geek_last_messages.return_value = [
+            # from boss → unread
+            {"uid": my_uid, "lastTime": "10:00", "lastTS": 2000,
+             "lastMsgInfo": {"msgId": 2, "showText": "感兴趣吗", "fromId": 111, "toId": my_uid,
+                             "status": 0, "msgTime": 2000}},
+            # from me → NOT unread
+            {"uid": my_uid, "lastTime": "09:00", "lastTS": 1000,
+             "lastMsgInfo": {"msgId": 1, "showText": "好的", "fromId": my_uid, "toId": 222,
+                             "status": 2, "msgTime": 1000}},
+        ]
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["unread", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            unread = data["data"]["unread"]
+            assert len(unread) == 1
+            assert unread[0]["friend"]["friendId"] == 111
+
+
+class TestExchangeCommands:
+    """Tests for send-resume / request-phone / request-wechat / accept."""
+
+    def test_send_resume_help(self):
+        result = runner.invoke(cli, ["send-resume", "--help"])
+        assert result.exit_code == 0
+        assert "friendId" in result.output.lower() or "FRIEND_ID" in result.output
+
+    def test_request_phone_help(self):
+        result = runner.invoke(cli, ["request-phone", "--help"])
+        assert result.exit_code == 0
+
+    def test_request_wechat_help(self):
+        result = runner.invoke(cli, ["request-wechat", "--help"])
+        assert result.exit_code == 0
+
+    def test_accept_help(self):
+        result = runner.invoke(cli, ["accept", "--help"])
+        assert result.exit_code == 0
+        assert "--reject" in result.output
+
+    def test_send_resume_success(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_exchange_request.return_value = {"type": 3, "status": 0}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["send-resume", "111", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_exchange_request.assert_called_once_with(111, "sec123", 3)
+
+    def test_request_phone_success(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_exchange_request.return_value = {"type": 1, "status": 0}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["request-phone", "111", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_exchange_request.assert_called_once_with(111, "sec123", 1)
+
+    def test_request_wechat_success(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_exchange_request.return_value = {"type": 2, "status": 0}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["request-wechat", "111", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_exchange_request.assert_called_once_with(111, "sec123", 2)
+
+    def test_accept_resume_request(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_last_messages.return_value = [{
+            "uid": 999,
+            "lastMsgInfo": {"msgId": 12345, "showText": "我想要一份您的附件简历，您是否同意",
+                            "fromId": 111, "toId": 999, "status": 0, "msgTime": 1000},
+        }]
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_accept_exchange.return_value = {}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["accept", "111", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_accept_exchange.assert_called_once_with(111, 12345, "sec123")
+
+    def test_accept_wechat_request(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_last_messages.return_value = [{
+            "uid": 999,
+            "lastMsgInfo": {"msgId": 99999, "showText": "我想要和您交换微信，您是否同意",
+                            "fromId": 111, "toId": 999, "status": 0, "msgTime": 1000},
+        }]
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_accept_wechat.return_value = {}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["accept", "111", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_accept_wechat.assert_called_once_with(111, 99999, "sec123")
+
+    def test_reject_request(self):
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_last_messages.return_value = [{
+            "uid": 999,
+            "lastMsgInfo": {"msgId": 12345, "showText": "我想要一份您的附件简历，您是否同意",
+                            "fromId": 111, "toId": 999, "status": 0, "msgTime": 1000},
+        }]
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        client.geek_reject_exchange.return_value = {}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["accept", "111", "--reject", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["ok"] is True
+            client.geek_reject_exchange.assert_called_once_with(111, 12345, "sec123")
+
+    def test_accept_no_exchange_request(self):
+        """Should fail if latest message is not an exchange request."""
+        cred = _mock_cred()
+        client = MagicMock()
+        client.get_geek_last_messages.return_value = [{
+            "uid": 999,
+            "lastMsgInfo": {"msgId": 1, "showText": "你好，请问有时间聊聊吗",
+                            "fromId": 111, "toId": 999, "status": 0, "msgTime": 1000},
+        }]
+        client.get_geek_boss_data.return_value = {"securityId": "sec123"}
+        with patch("boss_cli.auth.get_credential", return_value=cred), \
+             patch("boss_cli.commands._common.BossClient", return_value=_mock_client_ctx(client)):
+            result = runner.invoke(cli, ["accept", "111", "--json"])
+            assert result.exit_code != 0 or (
+                json.loads(result.output)["ok"] is False
+            )
+
+
+class TestProtobufEncoding:
+    """Tests for the hand-written Protobuf encoder in mqtt_chat.py."""
+
+    def test_varint_single_byte(self):
+        from boss_cli.mqtt_chat import _varint
+        assert _varint(0) == b'\x00'
+        assert _varint(1) == b'\x01'
+        assert _varint(127) == b'\x7f'
+
+    def test_varint_multibyte(self):
+        from boss_cli.mqtt_chat import _varint
+        assert _varint(128) == b'\x80\x01'
+        assert _varint(300) == b'\xac\x02'
+        assert _varint(16383) == b'\xff\x7f'
+        assert _varint(16384) == b'\x80\x80\x01'
+
+    def test_build_text_message_is_bytes(self):
+        from boss_cli.mqtt_chat import build_text_message
+        payload = build_text_message(111, "encA", 222, "encB", "hello")
+        assert isinstance(payload, bytes)
+        assert len(payload) > 0
+
+    def test_build_text_message_starts_with_type1(self):
+        from boss_cli.mqtt_chat import build_text_message, _varint
+        payload = build_text_message(111, "encA", 222, "encB", "hi")
+        # First field: f1 (type), varint, value=1 → tag=0x08, value=0x01
+        assert payload[0] == 0x08
+        assert payload[1] == 0x01
+
+    def test_build_text_message_contains_text(self):
+        from boss_cli.mqtt_chat import build_text_message
+        payload = build_text_message(111, "encA", 222, "encB", "测试消息")
+        assert "测试消息".encode("utf-8") in payload
+
+    def test_build_text_message_different_uids(self):
+        from boss_cli.mqtt_chat import build_text_message
+        p1 = build_text_message(111, "encA", 222, "encB", "hi")
+        p2 = build_text_message(333, "encC", 444, "encD", "hi")
+        assert p1 != p2
