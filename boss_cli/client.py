@@ -439,9 +439,12 @@ class BossClient:
 
     # ── Social / Chat ───────────────────────────────────────────────
 
-    def get_friend_list(self) -> dict[str, Any]:
-        """Get geek friend list (沟通过的 Boss)."""
-        return self._get(FRIEND_LIST_URL, action="好友列表")
+    def get_friend_list(self, page: int = 1) -> dict[str, Any]:
+        """Get geek friend list (沟通过的 Boss), 100 per page.
+
+        The API returns an empty list when ``page`` is omitted.
+        """
+        return self._get(FRIEND_LIST_URL, params={"page": page}, action="好友列表")
 
     def add_friend(self, security_id: str, lid: str = "") -> dict[str, Any]:
         """Send greeting to a Boss (打招呼 / 投递简历)."""

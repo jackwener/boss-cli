@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 @click.command("chat")
+@click.option("-p", "--page", default=1, type=int, help="页码 (每页 100 个)")
 @structured_output_options
-def chat_list(as_json: bool, as_yaml: bool) -> None:
+def chat_list(page: int, as_json: bool, as_yaml: bool) -> None:
     """查看沟通过的 Boss 列表"""
     cred = require_auth()
 
@@ -42,19 +43,22 @@ def chat_list(as_json: bool, as_yaml: bool) -> None:
         table.add_column("公司", style="green", max_width=20)
         table.add_column("职位", max_width=25)
         table.add_column("最近消息", style="dim", max_width=30)
+        table.add_column("最后发言", width=6)
 
         for i, friend in enumerate(friend_list, 1):
+            last = friend.get("lastMessageInfo") or {}
             table.add_row(
                 str(i),
                 friend.get("name", friend.get("bossName", "-")),
                 friend.get("brandName", "-"),
                 friend.get("jobName", "-"),
                 friend.get("lastMsg", friend.get("lastText", "-")),
+                "Boss" if last.get("fromId") and last.get("fromId") == friend.get("uid") else "我",
             )
 
         console.print(table)
 
-    handle_command(cred, action=lambda c: c.get_friend_list(), render=_render, as_json=as_json, as_yaml=as_yaml)
+    handle_command(cred, action=lambda c: c.get_friend_list(page=page), render=_render, as_json=as_json, as_yaml=as_yaml)
 
 
 @click.command()
