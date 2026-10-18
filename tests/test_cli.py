@@ -951,3 +951,20 @@ class TestCommandFailures:
             assert result.exit_code == 0
             assert "1/1" in result.output
             clear_credential.assert_not_called()
+
+
+def test_chat_passes_page_to_friend_list():
+    mock_cred = MagicMock()
+    client = MagicMock()
+    client.get_friend_list.return_value = {"result": [{"uid": 7, "lastMessageInfo": {"fromId": 7, "toId": 1}}]}
+    captured = {}
+
+    def fake_handle(cred, *, action, render, as_json, as_yaml):
+        captured["data"] = action(client)
+
+    with patch("boss_cli.commands.social.require_auth", return_value=mock_cred), \
+         patch("boss_cli.commands.social.handle_command", side_effect=fake_handle):
+        result = runner.invoke(cli, ["chat", "--page", "2", "--json"])
+
+    assert result.exit_code == 0, result.output
+    client.get_friend_list.assert_called_once_with(page=2)
