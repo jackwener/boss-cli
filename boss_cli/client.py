@@ -369,6 +369,43 @@ class BossClient:
             params["jobType"] = job_type
         return self._get(JOB_SEARCH_URL, params=params, action="搜索职位")
 
+    def search_jobs_by_url(
+        self,
+        url: str,
+        page: int = 1,
+        page_size: int = 15,
+    ) -> dict[str, Any]:
+        """Search jobs using a BOSS web URL.
+
+        Parses query parameters from a zhipin.com search URL and passes
+        them directly to the API, preserving all filter selections
+        (including multi-select) exactly as configured on the website.
+
+        Example URL:
+            https://www.zhipin.com/web/geek/jobs?city=101210100&experience=102,108&query=前端
+        """
+        from urllib.parse import urlparse, parse_qs
+
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query, keep_blank_values=False)
+
+        # Extract known parameters (use first value from parse_qs lists)
+        params: dict[str, Any] = {
+            "query": qs.get("query", [""])[0],
+            "city": qs.get("city", ["101010100"])[0],
+            "page": page,
+            "pageSize": page_size,
+        }
+
+        # Forward all filter params directly (supports multi-select via comma)
+        for key in ("experience", "degree", "salary", "jobType",
+                     "industry", "scale", "stage"):
+            val = qs.get(key, [None])[0]
+            if val:
+                params[key] = val
+
+        return self._get(JOB_SEARCH_URL, params=params, action="搜索职位(URL)")
+
     def get_recommend_jobs(self, page: int = 1) -> dict[str, Any]:
         """Get personalized job recommendations.
 

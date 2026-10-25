@@ -28,6 +28,28 @@ logger = logging.getLogger(__name__)
 
 # ── Helper: render job table ────────────────────────────────────────
 
+def _resolve_multi(value: str | None, code_map: dict[str, str]) -> str | None:
+    """Resolve a possibly comma-separated filter value to API codes.
+
+    Supports both single values (e.g., '应届生') and multi-select
+    (e.g., '应届生,在校生' -> '102,108').
+    """
+    if not value:
+        return None
+    parts = [v.strip() for v in value.split(",") if v.strip()]
+    codes = []
+    for part in parts:
+        code = code_map.get(part)
+        if code:
+            codes.append(code)
+        else:
+            available = ", ".join(code_map.keys())
+            raise click.BadParameter(
+                f"未知选项 '{part}'。可选值: {available}"
+            )
+    return ",".join(codes) if codes else None
+
+
 def _render_job_table(
     job_list: list[dict], title: str, page: int = 1, hint_next: str = "",
 ) -> None:
@@ -77,61 +99,88 @@ def _render_job_table(
 # ── search ──────────────────────────────────────────────────────────
 
 @click.command()
-@click.argument("keyword")
+@click.argument("keyword", required=False, default=None)
+@click.option("--url", "search_url", default=None, help="直接使用 BOSS 网页 URL 搜索 (所有 filter 选项从 URL 解析)")
 @click.option("-c", "--city", default="全国", help="城市名称或代码 (默认: 全国)")
 @click.option("-p", "--page", default=1, type=int, help="页码 (默认: 1)")
-@click.option("--salary", type=click.Choice(list(SALARY_CODES.keys())), help="薪资筛选")
-@click.option("--exp", type=click.Choice(list(EXP_CODES.keys())), help="工作经验筛选")
-@click.option("--degree", type=click.Choice(list(DEGREE_CODES.keys())), help="学历筛选")
-@click.option("--industry", type=click.Choice(list(INDUSTRY_CODES.keys())), help="行业筛选 (如: 互联网, 金融)")
-@click.option("--scale", type=click.Choice(list(SCALE_CODES.keys())), help="公司规模筛选 (如: 1000-9999人)")
-@click.option("--stage", type=click.Choice(list(STAGE_CODES.keys())), help="融资阶段筛选 (如: A轮, 已上市)")
-@click.option("--job-type", type=click.Choice(list(JOB_TYPE_CODES.keys())), help="职位类型 (全职/兼职/实习)")
+@click.option("--salary", default=None, help="薪资筛选 (支持逗号分隔多选, 如: 5-10K,10-15K)")
+@click.option("--exp", default=None, help="工作经验筛选 (支持逗号分隔多选, 如: 应届生,在校生)")
+@click.option("--degree", default=None, help="学历筛选 (支持逗号分隔多选, 如: 本科,硕士)")
+@click.option("--industry", default=None, help="行业筛选 (支持逗号分隔多选, 如: 互联网,人工智能)")
+@click.option("--scale", default=None, help="公司规模筛选 (支持逗号分隔多选)")
+@click.option("--stage", default=None, help="融资阶段筛选 (支持逗号分隔多选)")
+@click.option("--job-type", default=None, help="职位类型 (支持逗号分隔多选, 如: 全职,实习)")
 @structured_output_options
 def search(
-    keyword: str, city: str, page: int,
+    keyword: str | None, search_url: str | None, city: str, page: int,
     salary: str | None, exp: str | None, degree: str | None,
     industry: str | None, scale: str | None, stage: str | None, job_type: str | None,
     as_json: bool, as_yaml: bool,
 ) -> None:
-    """搜索职位 (例: boss search Python --city 北京 --industry 互联网)"""
+    """搜索职位
+
+    支持两种方式:
+      boss search Python --city 北京 --exp 应届生
+      boss search --url "https://www.zhipin.com/web/geek/jobs?city=..."
+    """
+    if not keyword and not search_url:
+        raise click.UsageError("必须提供 KEYWORD 或 --url 参数")
+
     cred = require_auth()
 
-    city_code = resolve_city(city)
-    salary_code = SALARY_CODES.get(salary) if salary else None
-    exp_code = EXP_CODES.get(exp) if exp else None
-    degree_code = DEGREE_CODES.get(degree) if degree else None
-    industry_code = INDUSTRY_CODES.get(industry) if industry else None
-    scale_code = SCALE_CODES.get(scale) if scale else None
-    stage_code = STAGE_CODES.get(stage) if stage else None
-    job_type_code = JOB_TYPE_CODES.get(job_type) if job_type else None
+    if search_url:
+        # URL 模式: 直接从 URL 解析参数
+        from urllib.parse import urlparse, parse_qs, unquote
+        qs = parse_qs(urlparse(search_url).query)
+        display_query = unquote(qs.get("query", [""])[0]) or "(URL搜索)"
 
-    def _action(c: BossClient) -> dict:
-        return c.search_jobs(
-            query=keyword, city=city_code, page=page,
-            experience=exp_code, degree=degree_code, salary=salary_code,
-            industry=industry_code, scale=scale_code, stage=stage_code,
-            job_type=job_type_code,
-        )
+        def _action(c: BossClient) -> dict:
+            return c.search_jobs_by_url(search_url, page=page)
 
-    def _render(data: dict) -> None:
-        job_list = data.get("jobList", [])
-        # Always save index cache for `boss show` navigation
-        if job_list:
-            save_index(job_list, source=f"search:{keyword}")
+        def _render(data: dict) -> None:
+            job_list = data.get("jobList", [])
+            if job_list:
+                save_index(job_list, source=f"search:{display_query}")
+            _render_job_table(
+                job_list,
+                title=f"🔍 搜索(URL): {display_query}",
+                page=page,
+                hint_next=f"更多结果: boss search --url \"{search_url}\" -p {page + 1}" if data.get("hasMore") else "",
+            )
+    else:
+        # 参数模式: 传统方式
+        city_code = resolve_city(city)
+        salary_code = _resolve_multi(salary, SALARY_CODES)
+        exp_code = _resolve_multi(exp, EXP_CODES)
+        degree_code = _resolve_multi(degree, DEGREE_CODES)
+        industry_code = _resolve_multi(industry, INDUSTRY_CODES)
+        scale_code = _resolve_multi(scale, SCALE_CODES)
+        stage_code = _resolve_multi(stage, STAGE_CODES)
+        job_type_code = _resolve_multi(job_type, JOB_TYPE_CODES)
 
-        filters = [city]
-        for f in (salary, exp, degree, industry, scale, stage, job_type):
-            if f:
-                filters.append(f)
-        filter_str = " · ".join(filters)
+        def _action(c: BossClient) -> dict:
+            return c.search_jobs(
+                query=keyword, city=city_code, page=page,
+                experience=exp_code, degree=degree_code, salary=salary_code,
+                industry=industry_code, scale=scale_code, stage=stage_code,
+                job_type=job_type_code,
+            )
 
-        _render_job_table(
-            job_list,
-            title=f"🔍 搜索: {keyword} ({filter_str})",
-            page=page,
-            hint_next=f"更多结果: boss search \"{keyword}\" --city {city} -p {page + 1}" if data.get("hasMore") else "",
-        )
+        def _render(data: dict) -> None:
+            job_list = data.get("jobList", [])
+            if job_list:
+                save_index(job_list, source=f"search:{keyword}")
+            filters = [city]
+            for f in (salary, exp, degree, industry, scale, stage, job_type):
+                if f:
+                    filters.append(f)
+            filter_str = " · ".join(filters)
+            _render_job_table(
+                job_list,
+                title=f"🔍 搜索: {keyword} ({filter_str})",
+                page=page,
+                hint_next=f"更多结果: boss search \"{keyword}\" --city {city} -p {page + 1}" if data.get("hasMore") else "",
+            )
 
     handle_command(cred, action=_action, render=_render, as_json=as_json, as_yaml=as_yaml)
 
@@ -266,38 +315,46 @@ def _render_detail(data: dict) -> None:
 # ── export ──────────────────────────────────────────────────────────
 
 @click.command()
-@click.argument("keyword")
+@click.argument("keyword", required=False, default=None)
+@click.option("--url", "search_url", default=None, help="直接使用 BOSS 网页 URL 导出 (所有 filter 从 URL 解析)")
 @click.option("-c", "--city", default="全国", help="城市名称或代码")
 @click.option("-n", "--count", default=30, type=int, help="导出数量 (默认: 30)")
-@click.option("--salary", type=click.Choice(list(SALARY_CODES.keys())), help="薪资筛选")
-@click.option("--exp", type=click.Choice(list(EXP_CODES.keys())), help="工作经验筛选")
-@click.option("--degree", type=click.Choice(list(DEGREE_CODES.keys())), help="学历筛选")
-@click.option("--industry", type=click.Choice(list(INDUSTRY_CODES.keys())), help="行业筛选")
-@click.option("--scale", type=click.Choice(list(SCALE_CODES.keys())), help="公司规模筛选")
-@click.option("--stage", type=click.Choice(list(STAGE_CODES.keys())), help="融资阶段筛选")
-@click.option("--job-type", type=click.Choice(list(JOB_TYPE_CODES.keys())), help="职位类型")
+@click.option("--salary", default=None, help="薪资筛选 (支持逗号分隔多选)")
+@click.option("--exp", default=None, help="工作经验筛选 (支持逗号分隔多选)")
+@click.option("--degree", default=None, help="学历筛选 (支持逗号分隔多选)")
+@click.option("--industry", default=None, help="行业筛选 (支持逗号分隔多选)")
+@click.option("--scale", default=None, help="公司规模筛选 (支持逗号分隔多选)")
+@click.option("--stage", default=None, help="融资阶段筛选 (支持逗号分隔多选)")
+@click.option("--job-type", default=None, help="职位类型 (支持逗号分隔多选)")
 @click.option("-o", "--output", "output_file", default=None, help="输出文件路径 (默认: stdout)")
 @click.option("--format", "fmt", type=click.Choice(["csv", "json"]), default="csv", help="输出格式")
 def export(
-    keyword: str, city: str, count: int,
+    keyword: str | None, search_url: str | None, city: str, count: int,
     salary: str | None, exp: str | None, degree: str | None,
     industry: str | None, scale: str | None, stage: str | None, job_type: str | None,
     output_file: str | None, fmt: str,
 ) -> None:
     """导出搜索结果为 CSV 或 JSON
 
-    例: boss export "golang" --city 杭州 -n 50 -o jobs.csv
+    支持两种方式:
+      boss export "golang" --city 杭州 -n 50 -o jobs.csv
+      boss export --url "https://www.zhipin.com/web/geek/jobs?city=..." -n 50 --format json
     """
-    cred = require_auth()
+    if not keyword and not search_url:
+        raise click.UsageError("必须提供 KEYWORD 或 --url 参数")
 
-    city_code = resolve_city(city)
-    salary_code = SALARY_CODES.get(salary) if salary else None
-    exp_code = EXP_CODES.get(exp) if exp else None
-    degree_code = DEGREE_CODES.get(degree) if degree else None
-    industry_code = INDUSTRY_CODES.get(industry) if industry else None
-    scale_code = SCALE_CODES.get(scale) if scale else None
-    stage_code = STAGE_CODES.get(stage) if stage else None
-    job_type_code = JOB_TYPE_CODES.get(job_type) if job_type else None
+    cred = require_auth()
+    use_url = search_url is not None
+
+    if not use_url:
+        city_code = resolve_city(city)
+        salary_code = _resolve_multi(salary, SALARY_CODES)
+        exp_code = _resolve_multi(exp, EXP_CODES)
+        degree_code = _resolve_multi(degree, DEGREE_CODES)
+        industry_code = _resolve_multi(industry, INDUSTRY_CODES)
+        scale_code = _resolve_multi(scale, SCALE_CODES)
+        stage_code = _resolve_multi(stage, STAGE_CODES)
+        job_type_code = _resolve_multi(job_type, JOB_TYPE_CODES)
 
     all_jobs: list[dict] = []
     pages_needed = (count + 14) // 15  # 15 per page
@@ -306,12 +363,15 @@ def export(
         def _collect(c: BossClient) -> list[dict]:
             nonlocal all_jobs
             for pg in range(1, pages_needed + 1):
-                data = c.search_jobs(
-                    query=keyword, city=city_code, page=pg,
-                    experience=exp_code, degree=degree_code, salary=salary_code,
-                    industry=industry_code, scale=scale_code, stage=stage_code,
-                    job_type=job_type_code,
-                )
+                if use_url:
+                    data = c.search_jobs_by_url(search_url, page=pg)
+                else:
+                    data = c.search_jobs(
+                        query=keyword, city=city_code, page=pg,
+                        experience=exp_code, degree=degree_code, salary=salary_code,
+                        industry=industry_code, scale=scale_code, stage=stage_code,
+                        job_type=job_type_code,
+                    )
                 job_list = data.get("jobList", [])
                 all_jobs.extend(job_list)
                 console.print(f"  [dim]📦 第 {pg} 页: {len(job_list)} 个职位 (累计: {len(all_jobs)})[/dim]")
@@ -327,10 +387,12 @@ def export(
         else:
             # CSV
             buf = io.StringIO()
-            fieldnames = ["职位", "公司", "薪资", "经验", "学历", "城市", "地区", "技能", "securityId"]
+            fieldnames = ["职位", "公司", "薪资", "经验", "学历", "城市", "地区", "技能", "URL", "securityId"]
             writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             for job in all_jobs:
+                eid = job.get("encryptJobId", "")
+                url = f"https://www.zhipin.com/job_detail/{eid}.html" if eid else ""
                 writer.writerow({
                     "职位": job.get("jobName", ""),
                     "公司": job.get("brandName", ""),
@@ -340,6 +402,7 @@ def export(
                     "城市": job.get("cityName", ""),
                     "地区": job.get("areaDistrict", ""),
                     "技能": ", ".join(job.get("skills", [])),
+                    "URL": url,
                     "securityId": job.get("securityId", ""),
                 })
             output_text = buf.getvalue()
