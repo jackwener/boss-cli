@@ -327,10 +327,12 @@ def export(
         else:
             # CSV
             buf = io.StringIO()
-            fieldnames = ["职位", "公司", "薪资", "经验", "学历", "城市", "地区", "技能", "securityId"]
+            fieldnames = ["职位", "公司", "薪资", "经验", "学历", "城市", "地区", "技能", "URL", "securityId"]
             writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             for job in all_jobs:
+                eid = job.get("encryptJobId", "")
+                url = f"https://www.zhipin.com/job_detail/{eid}.html" if eid else ""
                 writer.writerow({
                     "职位": job.get("jobName", ""),
                     "公司": job.get("brandName", ""),
@@ -340,6 +342,7 @@ def export(
                     "城市": job.get("cityName", ""),
                     "地区": job.get("areaDistrict", ""),
                     "技能": ", ".join(job.get("skills", [])),
+                    "URL": url,
                     "securityId": job.get("securityId", ""),
                 })
             output_text = buf.getvalue()

@@ -35,6 +35,7 @@ def save_index(jobs: list[dict[str, Any]], source: str = "search") -> None:
     for job in jobs:
         entry = {
             "securityId": job.get("securityId", ""),
+            "encryptJobId": job.get("encryptJobId", ""),
             "jobName": job.get("jobName", ""),
             "brandName": job.get("brandName", ""),
             "salaryDesc": job.get("salaryDesc", ""),
