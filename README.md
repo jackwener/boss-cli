@@ -230,6 +230,8 @@ Remove-Item Env:BOSS_CDP_URL
 
 The CLI tries CDP first when `BOSS_CDP_URL` is set and no `--cookie-source` is specified. Both the HTTP and WebSocket addresses must be loopback addresses; proxies and redirects are disabled. CDP lets the browser decrypt its own cookies. If CDP fails, the usual browser-cookie3 and QR login fallbacks still apply. Close the debugging browser after login. The separate profile persists at the path above; delete it when no longer needed.
 
+**Sandbox / container use:** when the loopback CDP endpoint is reachable only through an environment proxy (a common shape in sandboxes and containers), set `BOSS_CDP_PROXY=1` alongside `BOSS_CDP_URL`. The CLI then routes both the HTTP and the WebSocket CDP traffic through the address in `HTTP_PROXY`, passed explicitly (env auto-discovery honors `NO_PROXY`, which exempts loopback hosts and would bypass the proxy). Without `BOSS_CDP_PROXY`, the direct connection behavior is unchanged.
+
 `boss recommend` follows the live web app's current recommendation data source and request context, which improves compatibility when the legacy recommendation endpoint is rejected.
 
 `boss status --json` now reports per-flow health such as `search_authenticated` and `recommend_authenticated`, which helps diagnose partial-session issues. To avoid turning repeated checks into their own anti-bot problem, health snapshots are cached briefly in-memory.

@@ -17,6 +17,9 @@ from boss_cli.constants import REQUIRED_COOKIES
 @pytest.fixture(autouse=True)
 def isolated_credentials(monkeypatch, tmp_path):
     monkeypatch.delenv("BOSS_CDP_URL", raising=False)
+    monkeypatch.delenv("BOSS_CDP_PROXY", raising=False)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("http_proxy", raising=False)
     monkeypatch.setattr(auth, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(auth, "CREDENTIAL_FILE", tmp_path / "credential.json")
 
@@ -71,6 +74,31 @@ def test_import_filters_domains_and_ignores_events(cdp):
     assert connect.call_args.kwargs["redirect_limit"] == 0
     assert connect.call_args.kwargs["http_no_proxy"] == ["*"]
     ws.close.assert_called_once()
+
+
+def test_proxy_opt_in_routes_cdp_through_environment_proxy(cdp, monkeypatch):
+    client, _, connect, ws, cookies = cdp
+    monkeypatch.setenv("BOSS_CDP_PROXY", "1")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:3128")
+    cred, diagnostics = auth._extract_via_cdp("http://127.0.0.1:9222")
+    assert not diagnostics and cred is not None
+    client.assert_called_once_with(trust_env=False, follow_redirects=False, timeout=3, proxy="http://127.0.0.1:3128")
+    kwargs = connect.call_args.kwargs
+    assert kwargs["http_proxy_host"] == "127.0.0.1"
+    assert kwargs["http_proxy_port"] == 3128
+    assert kwargs["http_no_proxy"] == []
+
+
+def test_proxy_opt_in_without_http_proxy_fails_closed(cdp, monkeypatch):
+    monkeypatch.setenv("BOSS_CDP_PROXY", "1")
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("http_proxy", raising=False)
+    cred, diagnostics = auth._extract_via_cdp("http://127.0.0.1:9222")
+    assert cred is None
+    assert diagnostics == ["cdp: BOSS_CDP_PROXY is set but no HTTP_PROXY is configured"]
+    cdp[0].assert_not_called()
+    cdp[2].assert_not_called()
+    assert not auth.CREDENTIAL_FILE.exists()
 
 
 @pytest.mark.parametrize("message", [{"id": 1, "error": {"message": "secret"}}, {"id": 1, "result": {"cookies": []}}, {"id": 1, "result": {"cookies": [{"name": "wt2", "value": "incomplete", "domain": ".zhipin.com"}]}}, "malformed"])

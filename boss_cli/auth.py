@@ -569,6 +569,22 @@ def _loopback_cdp_url(url: str, schemes: tuple[str, ...]) -> str:
     return urlunsplit((parsed.scheme, authority, parsed.path, "", ""))
 
 
+def _cdp_proxy() -> str | None:
+    """Opt-in proxy for the CDP path (BOSS_CDP_PROXY, any non-empty value).
+
+    For sandboxes and containers where the loopback CDP endpoint is reachable
+    only through the environment proxy. The proxy is passed explicitly rather
+    than left to env auto-discovery, because auto-discovery also honors
+    NO_PROXY — which exempts loopback hosts and would bypass the very proxy
+    that is the only route to the endpoint."""
+    if not os.environ.get("BOSS_CDP_PROXY"):
+        return None
+    proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or ""
+    if not proxy:
+        raise ValueError("BOSS_CDP_PROXY is set but no HTTP_PROXY is configured")
+    return proxy
+
+
 def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, list[str]]:
     """Read cookies through an explicitly configured, loopback Chromium CDP endpoint."""
     diagnostics: list[str] = []
@@ -579,8 +595,23 @@ def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, li
         return None, ["cdp: websocket-client is not installed"]
     try:
         endpoint = _loopback_cdp_url(endpoint, ("http", "https"))
-        # Do not send local browser traffic through environment proxies or redirects.
-        with httpx.Client(trust_env=False, follow_redirects=False, timeout=3) as client:
+        # Direct by default: on a user laptop, environment proxies mangle
+        # loopback CDP traffic. BOSS_CDP_PROXY opts in for the sandbox case,
+        # where the environment proxy is the only route to the endpoint.
+        try:
+            proxy_url = _cdp_proxy()
+        except ValueError as exc:
+            # The message carries no URL or response body, so it can surface
+            # as-is; the blanket except below only names the type.
+            return None, [f"cdp: {exc}"]
+        client_kwargs: dict[str, object] = {
+            "trust_env": False,
+            "follow_redirects": False,
+            "timeout": 3,
+        }
+        if proxy_url is not None:
+            client_kwargs["proxy"] = proxy_url
+        with httpx.Client(**client_kwargs) as client:
             response = client.get(f"{endpoint}/json/list")
             response.raise_for_status()
             targets = response.json()
@@ -591,7 +622,20 @@ def _extract_via_cdp(endpoint: str | None = None) -> tuple[Credential | None, li
         if not ws_url:
             return None, ["cdp: /json/list did not return a page target"]
         ws_url = _loopback_cdp_url(ws_url, ("ws", "wss"))
-        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True, http_no_proxy=["*"], redirect_limit=0)
+        ws_kwargs: dict[str, object] = {
+            "timeout": 5,
+            "suppress_origin": True,
+            "http_no_proxy": ["*"],
+            "redirect_limit": 0,
+        }
+        if proxy_url is not None:
+            parsed = urlsplit(proxy_url if "://" in proxy_url else f"http://{proxy_url}")
+            ws_kwargs["http_proxy_host"] = parsed.hostname
+            ws_kwargs["http_proxy_port"] = parsed.port or 80
+            if parsed.username is not None:
+                ws_kwargs["http_proxy_auth"] = (parsed.username, parsed.password or "")
+            ws_kwargs["http_no_proxy"] = []
+        ws = websocket.create_connection(ws_url, **ws_kwargs)
         try:
             if ws.getstatus() != 101:
                 raise ValueError("CDP WebSocket upgrade failed")
